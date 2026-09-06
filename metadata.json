@@ -1,0 +1,6 @@
+{
+  "name": "Lịch Báo Giảng Tự Động - THCS Đồng Phú",
+  "description": "Ứng dụng tự động lập lịch báo giảng cho giáo viên trường THCS Đồng Phú với 4 modul: Danh sách giáo viên, Thời khóa biểu (TKB chuẩn số 1), Phân phối chương trình (PPCT) và Lịch báo giảng tự động.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

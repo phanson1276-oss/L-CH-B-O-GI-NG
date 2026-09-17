@@ -1,5 +1,5 @@
 import { LessonReportRow, WeeklyReportConfig, TimetableData, Teacher, TimetableSlot } from '../types';
-import { computeReportRowSpans } from './generator';
+import { computeReportRowSpans, sortReportRows, formatDayDateParts } from './generator';
 
 /**
  * Universal print/save window opener.
@@ -40,33 +40,36 @@ export function openHtmlPrintWindow(printableHtml: string, title: string = 'In �
  * Export Weekly Lesson Report (Phiếu báo giảng) to PDF / Print Window
  */
 export function exportLessonReportToPdf(rows: LessonReportRow[], config: WeeklyReportConfig) {
-  const rowSpans = computeReportRowSpans(rows);
+  const sortedRows = sortReportRows(rows);
+  const spans = computeReportRowSpans(sortedRows);
 
-  const tableRowsHtml = rows
+  const tableRowsHtml = sortedRows
     .map((r, idx) => {
-      const span = rowSpans[idx] || { dayRowSpan: 1, sessionRowSpan: 1 };
-      const dayCell =
-        span.dayRowSpan > 0
-          ? `<td rowspan="${span.dayRowSpan}" style="text-align: center; font-weight: bold; border: 1px solid #1e293b; padding: 6px 4px; vertical-align: middle; background-color: #f8fafc;">${r.dayName}</td>
-      <td rowspan="${span.dayRowSpan}" style="text-align: center; border: 1px solid #1e293b; padding: 6px 4px; vertical-align: middle; background-color: #f8fafc;">${r.dateString}</td>`
-          : '';
-      const sessionCell =
-        span.sessionRowSpan > 0
-          ? `<td rowspan="${span.sessionRowSpan}" style="text-align: center; border: 1px solid #1e293b; padding: 6px 4px; vertical-align: middle; background-color: #f8fafc; font-weight: 500;">${
-              r.session === 'morning' ? 'Sáng' : 'Chiều'
-            }</td>`
-          : '';
+      const span = spans[idx] || { dayRowSpan: 1, sessionRowSpan: 1 };
+      const { dayLabel, dateLabel } = r.dayLabel && r.dateLabel
+        ? { dayLabel: r.dayLabel, dateLabel: r.dateLabel }
+        : formatDayDateParts(r.dayOfWeek, r.dateString, r.dayDateDisplay);
+
+      const dayCellHtml = span.dayRowSpan > 0
+        ? `<td rowspan="${span.dayRowSpan}" style="text-align: center; border: 1px solid #1e293b; padding: 6px 4px; vertical-align: middle; background-color: #f8fafc;">
+            <div style="font-weight: bold; font-size: 11px; color: #0f172a;">${dayLabel}</div>
+            ${dateLabel ? `<div style="font-size: 10px; color: #475569; margin-top: 2px; font-weight: 600;">${dateLabel}</div>` : ''}
+          </td>`
+        : '';
+
+      const sessionCellHtml = span.sessionRowSpan > 0
+        ? `<td rowspan="${span.sessionRowSpan}" style="text-align: center; border: 1px solid #1e293b; padding: 6px 4px; font-weight: 500; vertical-align: middle;">${r.session === 'morning' ? 'Sáng' : 'Chiều'}</td>`
+        : '';
 
       return `
-    <tr style="background-color: ${idx % 2 === 0 ? '#ffffff' : '#fcfcfd'};">
-      ${dayCell}
-      ${sessionCell}
+    <tr style="background-color: #ffffff;">
+      ${dayCellHtml}
+      ${sessionCellHtml}
       <td style="text-align: center; font-weight: bold; border: 1px solid #1e293b; padding: 6px 4px;">${r.periodTKB}</td>
       <td style="text-align: center; border: 1px solid #1e293b; padding: 6px 4px;">${r.subject}</td>
       <td style="text-align: center; font-weight: bold; border: 1px solid #1e293b; padding: 6px 4px;">${r.className}</td>
       <td style="text-align: center; font-weight: bold; border: 1px solid #1e293b; padding: 6px 4px;">${r.ppctPeriodNumber}</td>
       <td style="text-align: left; border: 1px solid #1e293b; padding: 6px 8px; font-weight: 500;">${r.lessonName}</td>
-      <td style="text-align: left; border: 1px solid #1e293b; padding: 6px 8px;">${r.equipment || ''}</td>
       <td style="text-align: left; border: 1px solid #1e293b; padding: 6px 8px;">${r.notes || ''}</td>
     </tr>
   `;
@@ -242,16 +245,14 @@ export function exportLessonReportToPdf(rows: LessonReportRow[], config: WeeklyR
   <table class="data-table">
     <thead>
       <tr>
-        <th style="width: 6%;">Thứ</th>
-        <th style="width: 8%;">Ngày</th>
-        <th style="width: 5%;">Buổi</th>
-        <th style="width: 5%;">Tiết TKB</th>
-        <th style="width: 8%;">Môn</th>
-        <th style="width: 6%;">Lớp</th>
-        <th style="width: 7%;">Tiết PPCT</th>
-        <th style="width: 27%;">Tên bài dạy</th>
-        <th style="width: 15%;">Thiết bị dạy học</th>
-        <th style="width: 13%;">Ghi chú</th>
+        <th style="width: 14%;">Thứ ngày</th>
+        <th style="width: 8%;">Buổi</th>
+        <th style="width: 10%;">Tiết theo TKB</th>
+        <th style="width: 10%;">Môn</th>
+        <th style="width: 8%;">Lớp</th>
+        <th style="width: 12%;">Tiết thứ theo PPCT</th>
+        <th style="width: 26%;">Tên bài dạy</th>
+        <th style="width: 12%;">Ghi chú</th>
       </tr>
     </thead>
     <tbody>

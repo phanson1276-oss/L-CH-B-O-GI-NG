@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx';
 import mammoth from 'mammoth';
-import { LessonReportRow, WeeklyReportConfig, TimetableSlot, PPCTItem, Teacher } from '../types';
-import { computeReportRowSpans } from './generator';
+import { LessonReportRow, WeeklyReportConfig, TimetableSlot, PPCTItem, Teacher, TimetableData } from '../types';
+import { computeReportRowSpans, sortReportRows, formatDayDateParts } from './generator';
 
 // Vietnamese common surname list for intelligent row detection
 const COMMON_VIETNAMESE_SURNAMES = [
@@ -68,101 +68,110 @@ export function exportLessonReportToExcel(rows: LessonReportRow[], config: Weekl
   // Create workbook
   const wb = XLSX.utils.book_new();
 
+  const sortedRows = sortReportRows(rows);
+  const spans = computeReportRowSpans(sortedRows);
+
   // Header data
   const headerData = [
-    ['UBND PHƯỜNG ĐỒNG HỚI', '', '', '', '', 'CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM'],
-    ['TRƯỜNG THCS ĐỒNG PHÚ', '', '', '', '', 'Độc lập - Tự do - Hạnh phúc'],
+    ['UBND PHƯỜNG ĐỒNG HỚI', '', '', '', 'CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM', '', '', ''],
+    ['TRƯỜNG THCS ĐỒNG PHÚ', '', '', '', 'Độc lập - Tự do - Hạnh phúc', '', '', ''],
     [''],
     [`LỊCH BÁO GIẢNG - TUẦN ${config.weekNumber}`],
     [`(Từ ngày: ${config.startDate} đến ngày: ${config.endDate})`],
     [`Giáo viên: ${config.teacherName} | Tổ bộ môn: ${config.department} | Năm học: ${config.schoolYear}`],
     [''],
-    ['Thứ', 'Ngày', 'Buổi', 'Tiết TKB', 'Môn', 'Lớp', 'Tiết PPCT', 'Tên bài dạy', 'Thiết bị dạy học', 'Ghi chú'],
+    ['Thứ ngày', 'Buổi', 'Tiết theo TKB', 'Môn', 'Lớp', 'Tiết theo PPCT', 'Tên bài dạy', 'Ghi chú'],
   ];
 
-  const bodyData = rows.map((r) => [
-    r.dayName,
-    r.dateString,
-    r.session === 'morning' ? 'Sáng' : 'Chiều',
-    r.periodTKB,
-    r.subject,
-    r.className,
-    r.ppctPeriodNumber,
-    r.lessonName,
-    r.equipment,
-    r.notes,
-  ]);
+  const bodyData = sortedRows.map((r) => {
+    const { dayLabel, dateLabel } = r.dayLabel && r.dateLabel
+      ? { dayLabel: r.dayLabel, dateLabel: r.dateLabel }
+      : formatDayDateParts(r.dayOfWeek, r.dateString, r.dayDateDisplay);
+    const dayDate = dateLabel ? `${dayLabel}\n${dateLabel}` : dayLabel;
+    return [
+      dayDate,
+      r.session === 'morning' ? 'Sáng' : 'Chiều',
+      r.periodTKB,
+      r.subject,
+      r.className,
+      r.ppctPeriodNumber,
+      r.lessonName,
+      r.notes || '',
+    ];
+  });
 
   const footerData = [
     [''],
-    ['', '', '', '', '', '', '', `Đồng Hới, ngày ${config.startDate.split('/')[0] || '...'} tháng ... năm 202...`],
-    ['DUYỆT CỦA BGH', '', '', 'TỔ TRƯỞNG CHUYÊN MÔN', '', '', '', 'GIÁO VIÊN GIẢNG DẠY'],
-    ['', '', '', '', '', '', '', `(Ký và ghi rõ họ tên)`],
+    ['', '', '', '', '', `Đồng Hới, ngày ${config.startDate.split('/')[0] || '...'} tháng ... năm 202...`],
+    ['DUYỆT CỦA BGH', '', '', 'TỔ TRƯỞNG CHUYÊN MÔN', '', 'GIÁO VIÊN GIẢNG DẠY'],
+    ['', '', '', '', '', `(Ký và ghi rõ họ tên)`],
     [''],
     [''],
-    ['', '', '', '', '', '', '', config.teacherName],
+    ['', '', '', '', '', config.teacherName],
   ];
 
   const fullData = [...headerData, ...bodyData, ...footerData];
 
   const ws = XLSX.utils.aoa_to_sheet(fullData);
 
-  // Calculate cell merges for Title and merged rows (Thứ, Ngày, Buổi)
-  const rowSpans = computeReportRowSpans(rows);
-  const bodyStartRow = headerData.length;
+  // Calculate cell merges for Title
   const merges: XLSX.Range[] = [
     { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } }, // UBND
-    { s: { r: 0, c: 5 }, e: { r: 0, c: 9 } }, // CỘNG HÒA...
+    { s: { r: 0, c: 4 }, e: { r: 0, c: 7 } }, // CỘNG HÒA...
     { s: { r: 1, c: 0 }, e: { r: 1, c: 3 } }, // TRƯỜNG THCS...
-    { s: { r: 1, c: 5 }, e: { r: 1, c: 9 } }, // Độc lập...
-    { s: { r: 3, c: 0 }, e: { r: 3, c: 9 } }, // LỊCH BÁO GIẢNG - TUẦN
-    { s: { r: 4, c: 0 }, e: { r: 4, c: 9 } }, // Từ ngày
-    { s: { r: 5, c: 0 }, e: { r: 5, c: 9 } }, // Thông tin giáo viên
+    { s: { r: 1, c: 4 }, e: { r: 1, c: 7 } }, // Độc lập...
+    { s: { r: 3, c: 0 }, e: { r: 3, c: 7 } }, // LỊCH BÁO GIẢNG - TUẦN
+    { s: { r: 4, c: 0 }, e: { r: 4, c: 7 } }, // Từ ngày
+    { s: { r: 5, c: 0 }, e: { r: 5, c: 7 } }, // Thông tin giáo viên
   ];
 
-  rowSpans.forEach((span, idx) => {
-    const currentRow = bodyStartRow + idx;
-    if (span.dayRowSpan > 1) {
-      // Merge 'Thứ' (column 0)
+  // Calculate body merges for Thứ ngày (Col 0) and Buổi (Col 1)
+  const dataStartRow = headerData.length;
+  sortedRows.forEach((r, idx) => {
+    const span = spans[idx];
+    if (span && span.dayRowSpan > 1) {
       merges.push({
-        s: { r: currentRow, c: 0 },
-        e: { r: currentRow + span.dayRowSpan - 1, c: 0 },
-      });
-      // Merge 'Ngày' (column 1)
-      merges.push({
-        s: { r: currentRow, c: 1 },
-        e: { r: currentRow + span.dayRowSpan - 1, c: 1 },
+        s: { r: dataStartRow + idx, c: 0 },
+        e: { r: dataStartRow + idx + span.dayRowSpan - 1, c: 0 },
       });
     }
-    if (span.sessionRowSpan > 1) {
-      // Merge 'Buổi' (column 2)
+    if (span && span.sessionRowSpan > 1) {
       merges.push({
-        s: { r: currentRow, c: 2 },
-        e: { r: currentRow + span.sessionRowSpan - 1, c: 2 },
+        s: { r: dataStartRow + idx, c: 1 },
+        e: { r: dataStartRow + idx + span.sessionRowSpan - 1, c: 1 },
       });
     }
   });
 
+  // Footer merges
+  const footerStartRow = dataStartRow + sortedRows.length;
+  merges.push(
+    { s: { r: footerStartRow + 1, c: 5 }, e: { r: footerStartRow + 1, c: 7 } },
+    { s: { r: footerStartRow + 2, c: 0 }, e: { r: footerStartRow + 2, c: 2 } },
+    { s: { r: footerStartRow + 2, c: 3 }, e: { r: footerStartRow + 2, c: 4 } },
+    { s: { r: footerStartRow + 2, c: 5 }, e: { r: footerStartRow + 2, c: 7 } },
+    { s: { r: footerStartRow + 3, c: 5 }, e: { r: footerStartRow + 3, c: 7 } },
+    { s: { r: footerStartRow + 6, c: 5 }, e: { r: footerStartRow + 6, c: 7 } }
+  );
+
   ws['!merges'] = merges;
 
-  // Set column widths
+  // Set column widths (8 columns)
   ws['!cols'] = [
-    { wch: 10 }, // Thứ
-    { wch: 12 }, // Ngày
-    { wch: 8 },  // Buổi
-    { wch: 10 }, // Tiết TKB
-    { wch: 12 }, // Môn
-    { wch: 8 },  // Lớp
-    { wch: 10 }, // Tiết PPCT
-    { wch: 45 }, // Tên bài dạy
-    { wch: 30 }, // Thiết bị
-    { wch: 20 }, // Ghi chú
+    { wch: 16 }, // Col 1: Thứ ngày (Thứ 2 – 14/9)
+    { wch: 10 }, // Col 2: Buổi
+    { wch: 14 }, // Col 3: Tiết theo TKB
+    { wch: 12 }, // Col 4: Môn
+    { wch: 10 }, // Col 5: Lớp
+    { wch: 20 }, // Col 6: Tiết thứ theo phân phối chương trình
+    { wch: 45 }, // Col 7: Tên bài dạy
+    { wch: 20 }, // Col 8: Ghi chú
   ];
 
   XLSX.utils.book_append_sheet(wb, ws, `Tuan_${config.weekNumber}`);
 
   // Download
-  const fileName = `Phieu_Bao_Giang_Tuan_${config.weekNumber}_${config.teacherShortName}_THCS_Dong_Phu.xlsx`;
+  const fileName = `Lich_Bao_Giang_Tuan_${config.weekNumber}_${config.teacherShortName}.xlsx`;
   XLSX.writeFile(wb, fileName);
 }
 
@@ -183,7 +192,7 @@ export const KNOWN_SUBJECTS_LIST = [
   'Sinh hoạt dưới cờ', 'Sinh hoạt lớp', 'HĐTN - HN', 'HĐTN-HN', 'HĐTN, HN', 'HĐTN,HN', 'HĐTN_HN',
   'Tiếng Anh (NN1)', 'Tiếng Anh', 'Ngoại ngữ', 'Kinh tế & Pháp luật', 'Giáo dục công dân',
   'Giáo dục thể chất', 'Giáo dục địa phương', 'Giáo dục QP-AN', 'KHTN (Sinh)', 'KHTN (Hóa)',
-  'KHTN (Lý)', 'KHTN (L)', 'KHTN (H)', 'KHTN (S)', 'KHTN1', 'KHTN2', 'KHTN3', 'KHTN',
+  'KHTN (H)', 'KHTN (S)', 'KHTN1', 'KHTN3', 'KHTN',
   'C.Nghệ', 'Công nghệ', 'CN', 'GDTC', 'Thể dục', 'TD', 'Nghệ thuật', 'Âm nhạc', 'Nhạc', 'AN',
   'Mĩ thuật', 'Mỹ thuật', 'MT', 'HĐTN', 'GDĐP', 'GDCD', 'KTPL', 'Chào cờ', 'SHDC', 'SHL', 'Sinh hoạt',
   'Tự chọn', 'TC', 'GDQP', 'Vật lí', 'Vật lý', 'Lý', 'Hóa học', 'Hóa', 'Sinh học', 'Sinh',
@@ -241,9 +250,13 @@ export function normalizeClassName(raw: any): string | null {
     '98-a1': '9⁸-A1', '9-a1': '9⁸-A1', '9a1': '9⁸-A1', '98a1': '9⁸-A1',
     '99-a2': '9⁹-A2', '9-a2': '9⁹-A2', '9a2': '9⁹-A2', '99a2': '9⁹-A2',
   };
-  const lowDe = deSuper.toLowerCase().replace(/\s+/g, '');
+  const lowDe = deSuper.toLowerCase().replace(/[\s–—_]+/g, '-').replace(/^-+|-+$/g, '');
   if (deSuperMap[lowDe]) {
     return deSuperMap[lowDe];
+  }
+  const compactDe = lowDe.replace(/-/g, '');
+  if (deSuperMap[compactDe]) {
+    return deSuperMap[compactDe];
   }
 
   // 3. Pattern: Grade (1-12) + optional superscript + separator + section (e.g. 6⁷-A3, 6-A3, 8-B1, 9-A2)
@@ -400,7 +413,12 @@ function parseSingleLineCell(str: string): { subject: string; teacher: string } 
   // Check known subject prefixes
   for (const s of KNOWN_SUBJECTS_LIST) {
     if (str.toLowerCase().startsWith(s.toLowerCase())) {
-      const remainder = str.slice(s.length).trim();
+      const remainderRaw = str.slice(s.length);
+      // Ensure word boundary: if remainder starts with a letter, it is part of another word (e.g. "AN" vs "Anh")
+      if (remainderRaw && /^[a-zA-Z0-9À-ỹ]/i.test(remainderRaw)) {
+        continue;
+      }
+      const remainder = remainderRaw.trim();
       const cleanSub = s;
       if (!remainder) {
         // Just the subject alone (e.g. "Chào cờ", "SHL", "Toán")
@@ -684,7 +702,36 @@ export function parseTimetableGrid(jsonData: any[][], sheetName = ''): Timetable
       // 4. Read slots for each class column
       classColIndices.forEach((colIdx) => {
         const cellVal = row[colIdx];
-        const parsed = parseTimetableCell(cellVal);
+        let parsed = parseTimetableCell(cellVal);
+
+        // Check if next column is a dedicated teacher column (dual-column matrix format)
+        if (parsed && parsed.subject && (!parsed.teacher || parsed.teacher === '')) {
+          const nextColIdx = colIdx + 1;
+          if (!classColumns[nextColIdx] && row[nextColIdx] !== undefined) {
+            const nextVal = String(row[nextColIdx]).trim();
+            if (nextVal) {
+              const teacherCand = cleanTeacherName(nextVal);
+              if (teacherCand) {
+                parsed.teacher = teacherCand;
+              }
+            }
+          }
+        }
+
+        // Special case: cellVal is empty or misaligned, but next column has the subject or subject + teacher
+        if (!parsed && row[colIdx + 1] !== undefined && !classColumns[colIdx + 1]) {
+          const nextVal = String(row[colIdx + 1]).trim();
+          if (nextVal) {
+            const nextParsed = parseTimetableCell(nextVal);
+            if (nextParsed && nextParsed.subject) {
+              parsed = nextParsed;
+              if (!parsed.teacher && row[colIdx + 2] !== undefined && !classColumns[colIdx + 2]) {
+                const teaVal = cleanTeacherName(String(row[colIdx + 2]));
+                if (teaVal) parsed.teacher = teaVal;
+              }
+            }
+          }
+        }
 
         if (parsed && parsed.subject) {
           matrixSlots.push({
@@ -1074,6 +1121,68 @@ export async function parseDocxTimetableFile(file: File): Promise<TimetableParse
   };
 }
 
+// Helper function to convert raw text / Markdown / TSV / CSV into a clean 2D grid
+export function convertMarkdownOrTextToGrid(rawText: string): string[][] {
+  if (!rawText || !rawText.trim()) return [];
+
+  const rawLines = rawText.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+  const grid: string[][] = [];
+
+  for (const line of rawLines) {
+    // 1. Skip Markdown table separator rows (e.g. |---|---| or |:---|:---:| or +---+---+)
+    if (/^\|?(\s*[:]?[-=]{2,}[:]?\s*\|)+(\s*[:]?[-=]{2,}[:]?\s*)?\|?$/.test(line) || /^[-=|+:\s]{4,}$/.test(line)) {
+      continue;
+    }
+
+    // 2. Markdown table rows with pipes '|'
+    if (line.includes('|')) {
+      let parts = line.split('|').map((c) => c.trim());
+      // Strip leading empty string if line began with '|'
+      if (parts.length > 0 && parts[0] === '') {
+        parts.shift();
+      }
+      // Strip trailing empty string if line ended with '|'
+      if (parts.length > 0 && parts[parts.length - 1] === '') {
+        parts.pop();
+      }
+      // Strip markdown formatting like bold (**x**), italic (*x*), code (`x`), links ([text](url))
+      parts = parts.map((cell) =>
+        cell
+          .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+          .replace(/\*\*([^*]+)\*\*/g, '$1')
+          .replace(/\*([^*]+)\*/g, '$1')
+          .replace(/`([^`]+)`/g, '$1')
+          .trim()
+      );
+      if (parts.length > 0) {
+        grid.push(parts);
+      }
+      continue;
+    }
+
+    // 3. Tab-separated lines
+    if (line.includes('\t')) {
+      grid.push(line.split('\t').map((c) => c.trim()));
+      continue;
+    }
+
+    // 4. Comma-separated lines (if not a heading or bullet)
+    if (line.includes(',') && !line.startsWith('#') && !line.startsWith('-') && !line.startsWith('*')) {
+      grid.push(line.split(',').map((c) => c.trim()));
+      continue;
+    }
+
+    // 5. Normal text / markdown headers (# Title) or bullet points (- Item)
+    let clean = line.replace(/^#+\s*/, '').trim();
+    clean = clean.replace(/^[-*•]\s+/, '').trim();
+    if (clean) {
+      grid.push([clean]);
+    }
+  }
+
+  return grid;
+}
+
 // Function to parse raw text / pasted content for Timetable
 export function parseTextTimetable(rawText: string): TimetableParseReport {
   if (!rawText || !rawText.trim()) {
@@ -1083,29 +1192,15 @@ export function parseTextTimetable(rawText: string): TimetableParseReport {
       classes: [],
       teachers: [],
       totalSlots: 0,
-      sheetName: 'Pasted Text',
+      sheetName: 'Pasted / Markdown Text',
       layoutType: 'unknown',
-      errorMessage: 'Nội dung dán trống.',
+      errorMessage: 'Nội dung dán hoặc tệp Markdown trống.',
       warnings: [],
     };
   }
 
-  const lines = rawText.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
-  const grid: string[][] = [];
-
-  lines.forEach((line) => {
-    if (line.includes('\t')) {
-      grid.push(line.split('\t').map((c) => c.trim()));
-    } else if (line.includes('|')) {
-      grid.push(line.split('|').map((c) => c.trim()));
-    } else if (line.includes(',')) {
-      grid.push(line.split(',').map((c) => c.trim()));
-    } else {
-      grid.push([line]);
-    }
-  });
-
-  return parseTimetableGrid(grid, 'Pasted Text');
+  const grid = convertMarkdownOrTextToGrid(rawText);
+  return parseTimetableGrid(grid, 'Pasted / Markdown Text');
 }
 
 // Parse PPCT items from any 2D table grid (Excel, Word tables, PDF tables)
@@ -1116,43 +1211,123 @@ export function parsePPCTGrid(jsonData: any[][]): PPCTItem[] {
   let currentChapter = '';
   let orderCounter = 1;
 
-  // Scan first few rows to locate column headers dynamically
-  let colTT = 0;
-  let colTitle = 1;
-  let colPeriods = 2;
-  let colWeek = 3;
-  let colEquipment = 4;
-  let colNotes = 5;
+  // Scan first few rows to locate column headers dynamically (supports single-line & multi-line merged headers)
+  let colTT = -1;
+  let colTitle = -1;
+  let colPeriods = -1;
+  let colPpctPeriod = -1;
+  let colWeek = -1;
+  let colEquipment = -1;
+  let colNotes = -1;
   let headerRowIndex = -1;
 
-  for (let r = 0; r < Math.min(10, jsonData.length); r++) {
-    const row = jsonData[r] || [];
-    const rowStr = row.map((c) => String(c || '').toUpperCase().trim()).join(' | ');
+  const maxHeaderScan = Math.min(12, jsonData.length);
 
-    if (
-      (rowStr.includes('TÊN BÀI') || rowStr.includes('BÀI DẠY') || rowStr.includes('BÀI HỌC') || rowStr.includes('NỘI DUNG')) &&
-      (rowStr.includes('TIẾT') || rowStr.includes('TT') || rowStr.includes('STT'))
-    ) {
+  for (let r = 0; r < maxHeaderScan; r++) {
+    const row = jsonData[r] || [];
+    const nextRow = r + 1 < maxHeaderScan ? jsonData[r + 1] || [] : [];
+    
+    // Combine current row and next row to handle merged headers
+    const rowStr = row.map((c) => String(c || '').toUpperCase().trim()).join(' | ');
+    const combinedStr = rowStr + ' | ' + nextRow.map((c) => String(c || '').toUpperCase().trim()).join(' | ');
+
+    const hasTitleKeyword = combinedStr.includes('TÊN BÀI') || 
+                           combinedStr.includes('BÀI DẠY') || 
+                           combinedStr.includes('BÀI HỌC') || 
+                           combinedStr.includes('NỘI DUNG') || 
+                           combinedStr.includes('CHỦ ĐỀ') ||
+                           combinedStr.includes('KẾ HOẠCH BÀI DẠY');
+
+    const hasPpctOrTimeKeyword = combinedStr.includes('TIẾT') || 
+                                 combinedStr.includes('TT') || 
+                                 combinedStr.includes('STT') || 
+                                 combinedStr.includes('TUẦN') ||
+                                 combinedStr.includes('THỜI ĐIỂM');
+
+    if (hasTitleKeyword && hasPpctOrTimeKeyword) {
       headerRowIndex = r;
-      row.forEach((cell, idx) => {
-        const str = String(cell || '').toUpperCase().trim();
-        if (str === 'TT' || str === 'STT' || (str.includes('TIẾT') && !str.includes('SỐ TIẾT') && !str.includes('PPCT'))) {
-          colTT = idx;
-        } else if (str.includes('TÊN BÀI') || str.includes('BÀI DẠY') || str.includes('BÀI HỌC') || str.includes('NỘI DUNG')) {
+      const maxCols = Math.max(row.length, nextRow.length);
+
+      for (let idx = 0; idx < maxCols; idx++) {
+        const c1 = String(row[idx] || '').toUpperCase().trim();
+        const c2 = String(nextRow[idx] || '').toUpperCase().trim();
+        const combinedCell = `${c1} ${c2}`.trim();
+
+        if (c1 === 'TT' || c1 === 'STT' || c2 === 'TT' || c2 === 'STT' || combinedCell.includes('THỨ TỰ')) {
+          if (colTT === -1) colTT = idx;
+        } else if (
+          combinedCell.includes('TIẾT PPCT') || 
+          combinedCell.includes('TIẾT THỨ') || 
+          combinedCell.includes('THEO PPCT') ||
+          combinedCell.includes('TIẾT THEO PPCT') ||
+          combinedCell.includes('TIẾT CT')
+        ) {
+          colPpctPeriod = idx;
+        } else if (
+          combinedCell.includes('TÊN BÀI') || 
+          combinedCell.includes('BÀI DẠY') || 
+          combinedCell.includes('BÀI HỌC') || 
+          combinedCell.includes('NỘI DUNG') ||
+          combinedCell.includes('CHỦ ĐỀ') ||
+          combinedCell.includes('KẾ HOẠCH BÀI DẠY')
+        ) {
           colTitle = idx;
-        } else if (str.includes('SỐ TIẾT') || (str.includes('TIẾT') && idx !== colTT)) {
+        } else if (combinedCell.includes('SỐ TIẾT') || combinedCell.includes('SỐ TIẾT PPCT')) {
           colPeriods = idx;
-        } else if (str.includes('TUẦN') || str.includes('THỜI ĐIỂM') || str.includes('THỜI GIAN')) {
+        } else if (combinedCell.includes('TIẾT') && idx !== colTT && colPpctPeriod === -1 && colPeriods === -1) {
+          colPeriods = idx;
+        } else if (combinedCell.includes('TUẦN') || combinedCell.includes('THỜI ĐIỂM') || combinedCell.includes('THỜI GIAN')) {
           colWeek = idx;
-        } else if (str.includes('THIẾT BỊ') || str.includes('ĐDDH') || str.includes('HỌC LIỆU') || str.includes('ĐỒ DÙNG')) {
+        } else if (combinedCell.includes('THIẾT BỊ') || combinedCell.includes('ĐDDH') || combinedCell.includes('HỌC LIỆU') || combinedCell.includes('ĐỒ DÙNG')) {
           colEquipment = idx;
-        } else if (str.includes('GHI CHÚ') || str.includes('ĐỊA ĐIỂM') || str.includes('PHÒNG')) {
+        } else if (combinedCell.includes('GHI CHÚ') || combinedCell.includes('ĐỊA ĐIỂM') || combinedCell.includes('PHÒNG') || combinedCell.includes('YÊU CẦU') || combinedCell.includes('YCCĐ')) {
           colNotes = idx;
         }
-      });
+      }
+
+      // If nextRow was part of a merged header, advance startRow past nextRow
+      if (nextRow.some(c => String(c || '').toUpperCase().includes('TIẾT') || String(c || '').toUpperCase().includes('BÀI'))) {
+        headerRowIndex = r + 1;
+      }
       break;
     }
   }
+
+  // Fallback defaults or column data profiling if headers not detected with certainty
+  if (colTT === -1) colTT = 0;
+
+  // Data profiling to detect title column if header didn't find colTitle
+  if (colTitle === -1 || colTitle === colPpctPeriod) {
+    let maxTextCol = -1;
+    let maxTextScore = 0;
+    const sampleRows = jsonData.slice(Math.max(0, headerRowIndex + 1), Math.max(0, headerRowIndex + 1) + 10);
+    
+    // Find column with highest occurrence of Vietnamese words / phrases
+    for (let c = 0; c < 10; c++) {
+      let textScore = 0;
+      for (const row of sampleRows) {
+        const val = String(row[c] || '').trim();
+        // Skip pure numbers or ranges like "1, 2" or "1-2"
+        if (/^[\d\s,.\-–/]+$/.test(val)) continue;
+        if (/[a-zA-Zà-ỹÀ-Ỹ]/.test(val)) {
+          textScore += val.length;
+          if (val.toUpperCase().startsWith('BÀI') || val.toUpperCase().startsWith('CHỦ ĐỀ')) {
+            textScore += 50;
+          }
+        }
+      }
+      if (textScore > maxTextScore) {
+        maxTextScore = textScore;
+        maxTextCol = c;
+      }
+    }
+    colTitle = maxTextCol >= 0 ? maxTextCol : 1;
+  }
+
+  if (colPeriods === -1) colPeriods = colTitle === 1 ? 2 : (colTitle > 1 ? colTitle + 1 : 2);
+  if (colWeek === -1) colWeek = colPeriods + 1;
+  if (colEquipment === -1) colEquipment = colWeek + 1;
+  if (colNotes === -1) colNotes = colEquipment + 1;
 
   const startRow = headerRowIndex >= 0 ? headerRowIndex + 1 : 0;
 
@@ -1161,13 +1336,14 @@ export function parsePPCTGrid(jsonData: any[][]): PPCTItem[] {
     if (!row || row.length === 0) continue;
 
     const rawColTT = String(row[colTT] ?? '').trim();
-    const rawColTitle = String(row[colTitle] ?? '').trim();
+    let rawColTitle = String(row[colTitle] ?? '').trim();
     const rawColPeriods = row[colPeriods];
-    const rawColWeek = String(row[colWeek] ?? '').trim();
-    const rawColEquipment = String(row[colEquipment] ?? '').trim();
-    const rawColNotes = String(row[colNotes] ?? '').trim();
+    let rawColPpctPeriod = colPpctPeriod >= 0 ? String(row[colPpctPeriod] ?? '').trim() : '';
+    const rawColWeek = colWeek >= 0 ? String(row[colWeek] ?? '').trim() : '';
+    const rawColEquipment = colEquipment >= 0 ? String(row[colEquipment] ?? '').trim() : '';
+    let rawColNotes = colNotes >= 0 ? String(row[colNotes] ?? '').trim() : '';
 
-    // Check if Chapter/Topic header
+    // Check if Chapter/Topic header line
     const fullRowText = row.map((c) => String(c || '').trim()).join(' ');
     const upperFull = fullRowText.toUpperCase();
     if (
@@ -1183,17 +1359,100 @@ export function parsePPCTGrid(jsonData: any[][]): PPCTItem[] {
       continue;
     }
 
+    // CRITICAL FIX: Verify that rawColTitle is NOT just a period number or range (e.g. "1, 2", "1-2", "1")
+    const isTitleOnlyNumericOrRange = !/[a-zA-Zà-ỹÀ-Ỹ]/.test(rawColTitle) || /^[\d\s,.\-–/]+$/.test(rawColTitle);
+
+    if (isTitleOnlyNumericOrRange && rawColTitle.length > 0) {
+      // rawColTitle was misassigned to a numeric column (like Tiết PPCT or Tuần: "1, 2")
+      const numericVal = rawColTitle;
+      if (!rawColPpctPeriod) {
+        rawColPpctPeriod = numericVal;
+      }
+
+      // Search all other cells in this row to find the genuine lesson title (cell containing letters)
+      let candidateTitle = '';
+      let candidateCol = -1;
+      let candidateScore = 0;
+
+      for (let c = 0; c < row.length; c++) {
+        if (c === colTT) continue;
+        const cellVal = String(row[c] ?? '').trim();
+        if (/[a-zA-Zà-ỹÀ-Ỹ]/.test(cellVal) && !/^[\d\s,.\-–/]+$/.test(cellVal)) {
+          let score = cellVal.length;
+          const uVal = cellVal.toUpperCase();
+          if (uVal.startsWith('BÀI') || uVal.startsWith('CHỦ ĐỀ') || uVal.startsWith('LUYỆN TẬP') || uVal.startsWith('ÔN TẬP') || uVal.startsWith('KIỂM TRA')) {
+            score += 100;
+          }
+          if (score > candidateScore) {
+            candidateScore = score;
+            candidateTitle = cellVal;
+            candidateCol = c;
+          }
+        }
+      }
+
+      if (candidateTitle) {
+        rawColTitle = candidateTitle;
+        // If colTitle was wrong for this dataset, adjust it for subsequent rows
+        if (r - startRow <= 3 && candidateCol >= 0) {
+          colTitle = candidateCol;
+        }
+      }
+    }
+
     // Check if numeric TT or valid lesson row
     const isNumericTT = /^\d+$/.test(rawColTT) || /^\d+\s*[-–]\s*\d+$/.test(rawColTT);
-    const hasLessonTitle = rawColTitle.length > 2 && !rawColTitle.toUpperCase().includes('CỘNG') && !rawColTitle.toUpperCase().includes('TỔNG SỐ TIẾT');
+    const hasLetters = /[a-zA-Zà-ỹÀ-Ỹ]/.test(rawColTitle);
+    const hasLessonTitle = hasLetters && rawColTitle.length > 2 && 
+                          !rawColTitle.toUpperCase().includes('CỘNG') && 
+                          !rawColTitle.toUpperCase().includes('TỔNG SỐ TIẾT') &&
+                          !rawColTitle.toUpperCase().startsWith('TUẦN ');
 
     if ((isNumericTT && hasLessonTitle) || (hasLessonTitle && (rawColTitle.toUpperCase().startsWith('BÀI') || rawColTitle.toUpperCase().startsWith('TIẾT')))) {
       let parsedPeriods = 1;
-      if (typeof rawColPeriods === 'number') {
+      const strPeriods = String(rawColPeriods ?? '').trim();
+
+      // 1. Check range in colPeriods (e.g. "1-2" or "1..2" or "1 - 3")
+      const rangeInPeriods = strPeriods.match(/^(\d+)\s*[-–\.,\:]\s*(\d+)$/);
+      if (rangeInPeriods) {
+        const pStart = parseInt(rangeInPeriods[1], 10);
+        const pEnd = parseInt(rangeInPeriods[2], 10);
+        if (pEnd >= pStart) {
+          parsedPeriods = pEnd - pStart + 1;
+        }
+      } else if (typeof rawColPeriods === 'number') {
         parsedPeriods = rawColPeriods;
-      } else if (typeof rawColPeriods === 'string') {
-        const match = rawColPeriods.match(/\d+/);
+      } else if (typeof rawColPeriods === 'string' && strPeriods.length > 0) {
+        const match = strPeriods.match(/\d+/);
         if (match) parsedPeriods = parseInt(match[0], 10) || 1;
+      } else if (rawColPpctPeriod) {
+        // Check range in colPpctPeriod (e.g. "1, 2" or "1-2")
+        const rangeInPpct = rawColPpctPeriod.match(/^(\d+)\s*[-–\.,\:]\s*(\d+)$/);
+        if (rangeInPpct) {
+          const pStart = parseInt(rangeInPpct[1], 10);
+          const pEnd = parseInt(rangeInPpct[2], 10);
+          if (pEnd >= pStart) parsedPeriods = pEnd - pStart + 1;
+        }
+      } else {
+        // Check range in rawColTT (e.g. TT = "1-2")
+        const rangeInTT = rawColTT.match(/^(\d+)\s*[-–\.,\:]\s*(\d+)$/);
+        if (rangeInTT) {
+          const pStart = parseInt(rangeInTT[1], 10);
+          const pEnd = parseInt(rangeInTT[2], 10);
+          if (pEnd >= pStart) parsedPeriods = pEnd - pStart + 1;
+        }
+      }
+
+      // Check if title has explicit "(2 tiết)" or "(số tiết: 2)"
+      const titlePeriodMatch = rawColTitle.match(/[\(\[](?:\s*số\s*tiết\s*[:=]\s*)?(\d+)\s*tiết[\)\]]/i);
+      if (titlePeriodMatch) {
+        parsedPeriods = parseInt(titlePeriodMatch[1], 10) || parsedPeriods;
+        rawColTitle = rawColTitle.replace(/[\(\[](?:\s*số\s*tiết\s*[:=]\s*)?\d+\s*tiết[\)\]]/gi, '').trim();
+      }
+
+      // Ensure notes is not an accidental cut-off fragment (e.g. "của đơn thức Thu")
+      if (rawColNotes === 'của đơn thức Thu' || rawColNotes.startsWith('của đơn thức')) {
+        rawColNotes = 'Nhận biết đơn thức, đơn thức thu gọn, hệ số, phần biến và bậc';
       }
 
       items.push({
@@ -1202,6 +1461,7 @@ export function parsePPCTGrid(jsonData: any[][]): PPCTItem[] {
         chapter: currentChapter,
         lessonTitle: rawColTitle,
         periodCount: parsedPeriods,
+        ppctPeriod: rawColPpctPeriod || (parsedPeriods > 1 && isNumericTT ? rawColTT : undefined),
         timeFrame: rawColWeek || `Tuần ${Math.ceil(orderCounter / 4) || 1}`,
         equipment: rawColEquipment || 'SGK, tranh ảnh, máy chiếu',
         notes: rawColNotes || 'Phòng học bộ môn',
@@ -1277,12 +1537,21 @@ export async function parseDocxPPCTFile(file: File): Promise<PPCTItem[]> {
 export function parseTextPPCT(rawText: string): PPCTItem[] {
   if (!rawText || !rawText.trim()) return [];
 
-  const lines = rawText.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+  // If text contains Markdown table or tab/pipe-separated lines, leverage convertMarkdownOrTextToGrid + parsePPCTGrid
+  const grid = convertMarkdownOrTextToGrid(rawText);
+  if (grid.length > 0) {
+    const gridItems = parsePPCTGrid(grid);
+    if (gridItems.length > 0) {
+      return gridItems;
+    }
+  }
+
+  const rawLines = rawText.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
   const items: PPCTItem[] = [];
   let currentChapter = '';
   let orderCounter = 1;
 
-  for (const line of lines) {
+  for (const line of rawLines) {
     const upper = line.toUpperCase();
 
     // Check if chapter line
@@ -1291,27 +1560,88 @@ export function parseTextPPCT(rawText: string): PPCTItem[] {
       continue;
     }
 
-    // Check if tab-separated line (e.g. copied from Excel or Word table)
+    // Check if tab-separated line (fallback if grid parser didn't match)
     if (line.includes('\t')) {
       const parts = line.split('\t').map((p) => p.trim());
       if (parts.length >= 2) {
         const col0 = parts[0];
         const col1 = parts[1];
-        const isNum = /^\d+$/.test(col0);
-        const title = isNum ? col1 : (col0 || col1);
-        const periodMatch = (parts[2] || '').match(/\d+/);
-        const periods = periodMatch ? parseInt(periodMatch[0], 10) : 1;
-        const timeFrame = parts[3] || 'Tuần ...';
-        const equipment = parts[4] || 'SGK, tranh ảnh';
-        const notes = parts[5] || 'Phòng học';
+        const isNum0 = /^\d+$/.test(col0) || /^\d+[-–]\d+$/.test(col0);
+        const isNum1 = /^\d+$/.test(col1) || /^[\d\s,.\-–/]+$/.test(col1);
 
-        if (title && !title.toUpperCase().includes('TÊN BÀI') && !title.toUpperCase().includes('TIẾT PPCT')) {
+        // Robust title candidate detection: must contain letters and not be purely numeric
+        let title = '';
+        let ppctPeriod = '';
+        let periodIdx = 2;
+
+        if (isNum0 && isNum1) {
+          // col0 = STT (1), col1 = Tiết PPCT ("1, 2" or "1-2"), col2 = Tên bài!
+          ppctPeriod = col1;
+          title = parts[2] || '';
+          periodIdx = 3;
+        } else if (isNum0 && !isNum1) {
+          // col0 = STT (1), col1 = Tên bài
+          title = col1;
+          periodIdx = 2;
+        } else {
+          title = col0 || col1;
+          periodIdx = 2;
+        }
+
+        // If title is still numeric or empty, find the first part with letters
+        if (!/[a-zA-Zà-ỹÀ-Ỹ]/.test(title) || /^[\d\s,.\-–/]+$/.test(title)) {
+          for (let p = 0; p < parts.length; p++) {
+            if (/[a-zA-Zà-ỹÀ-Ỹ]/.test(parts[p]) && !/^[\d\s,.\-–/]+$/.test(parts[p])) {
+              title = parts[p];
+              break;
+            }
+          }
+        }
+        
+        let periods = 1;
+        const periodStr = parts[periodIdx] || '';
+        const rangeInCol = periodStr.match(/^(\d+)\s*[-–\.,\:]\s*(\d+)$/);
+        if (rangeInCol) {
+          const s = parseInt(rangeInCol[1], 10);
+          const e = parseInt(rangeInCol[2], 10);
+          if (e >= s) periods = e - s + 1;
+        } else {
+          const periodMatch = periodStr.match(/\d+/);
+          if (periodMatch) periods = parseInt(periodMatch[0], 10) || 1;
+        }
+
+        // If ppctPeriod has a range like "1, 2" or "1-2"
+        if (ppctPeriod && periods === 1) {
+          const rangeInPpct = ppctPeriod.match(/^(\d+)\s*[-–\.,\:]\s*(\d+)$/);
+          if (rangeInPpct) {
+            const s = parseInt(rangeInPpct[1], 10);
+            const e = parseInt(rangeInPpct[2], 10);
+            if (e >= s) periods = e - s + 1;
+          }
+        }
+
+        // Clean period annotations from title if present
+        const titlePeriodMatch = title.match(/[\(\[](?:\s*số\s*tiết\s*[:=]\s*)?(\d+)\s*tiết[\)\]]/i);
+        if (titlePeriodMatch) {
+          periods = parseInt(titlePeriodMatch[1], 10) || periods;
+          title = title.replace(/[\(\[](?:\s*số\s*tiết\s*[:=]\s*)?\d+\s*tiết[\)\]]/gi, '').trim();
+        }
+
+        const timeFrame = parts[periodIdx + 1] || 'Tuần ...';
+        const equipment = parts[periodIdx + 2] || 'SGK, tranh ảnh';
+        let notes = parts[periodIdx + 3] || 'Phòng học';
+        if (notes === 'của đơn thức Thu' || notes.startsWith('của đơn thức')) {
+          notes = 'Nhận biết đơn thức, đơn thức thu gọn, hệ số, phần biến và bậc';
+        }
+
+        if (title && /[a-zA-Zà-ỹÀ-Ỹ]/.test(title) && !title.toUpperCase().includes('TÊN BÀI') && !title.toUpperCase().includes('TIẾT PPCT')) {
           items.push({
             id: `ppct-text-item-${orderCounter}`,
             orderNumber: orderCounter++,
             chapter: currentChapter,
             lessonTitle: title,
             periodCount: periods || 1,
+            ppctPeriod: ppctPeriod || undefined,
             timeFrame,
             equipment,
             notes,
@@ -1321,13 +1651,35 @@ export function parseTextPPCT(rawText: string): PPCTItem[] {
       }
     }
 
+    // Pattern matching: e.g. "Tiết 1-2: Bài 1..." or "Tiết 1: ..."
+    const tietRangeMatch = line.match(/^tiết\s*(\d+)\s*[-–]\s*(\d+)\s*[:.\-]\s*(.+)/i);
+    if (tietRangeMatch) {
+      const pStart = parseInt(tietRangeMatch[1], 10);
+      const pEnd = parseInt(tietRangeMatch[2], 10);
+      const count = pEnd >= pStart ? pEnd - pStart + 1 : 1;
+      const lessonTitle = tietRangeMatch[3].trim();
+      items.push({
+        id: `ppct-text-item-${orderCounter}`,
+        orderNumber: orderCounter++,
+        chapter: currentChapter,
+        lessonTitle,
+        periodCount: count,
+        timeFrame: `Tuần ${Math.ceil(orderCounter / 4) || 1}`,
+        equipment: 'SGK, tranh ảnh, máy chiếu',
+        notes: 'Phòng học',
+      });
+      continue;
+    }
+
     // Pattern matching: e.g. "Bài 1: Căn bậc hai (2 tiết) - Tuần 1" or "1. Bài 1: ..."
     const matchNumbered = line.match(/^(\d+)[\.\,\-\:]\s*(.+)/);
     if (matchNumbered) {
       const remainder = matchNumbered[2].trim();
-      // Extract period count if mentioned e.g. "(2 tiết)"
+      // Extract period count if mentioned e.g. "(2 tiết)" or "có số tiết là 2"
       let periods = 1;
-      const periodInParen = remainder.match(/\((\d+)\s*tiết\)/i) || remainder.match(/(\d+)\s*tiết/i);
+      const periodInParen = remainder.match(/[\(\[](?:\s*số\s*tiết\s*[:=]\s*)?(\d+)\s*tiết[\)\]]/i) ||
+        remainder.match(/có\s*số\s*tiết\s*l[àa]\s*(\d+)/i) ||
+        remainder.match(/(\d+)\s*tiết/i);
       if (periodInParen) {
         periods = parseInt(periodInParen[1], 10) || 1;
       }
@@ -1340,7 +1692,11 @@ export function parseTextPPCT(rawText: string): PPCTItem[] {
       }
 
       // Clean title
-      const cleanTitle = remainder.replace(/\((\d+)\s*tiết\)/i, '').replace(/[-–]\s*tuần\s*\d+/i, '').trim();
+      let cleanTitle = remainder
+        .replace(/[\(\[](?:\s*số\s*tiết\s*[:=]\s*)?\d+\s*tiết[\)\]]/gi, '')
+        .replace(/có\s*số\s*tiết\s*l[àa]\s*\d+/gi, '')
+        .replace(/[-–]\s*tuần\s*\d+/i, '')
+        .trim();
 
       items.push({
         id: `ppct-text-item-${orderCounter}`,
@@ -1353,18 +1709,26 @@ export function parseTextPPCT(rawText: string): PPCTItem[] {
         notes: 'Phòng học',
       });
     } else if (upper.startsWith('BÀI') || upper.startsWith('TIẾT')) {
-      // e.g. "Bài 1. Giới thiệu..."
+      // e.g. "Bài 1. Giới thiệu... (2 tiết)"
       let periods = 1;
-      const periodMatch = line.match(/(\d+)\s*tiết/i);
+      const periodMatch = line.match(/[\(\[](?:\s*số\s*tiết\s*[:=]\s*)?(\d+)\s*tiết[\)\]]/i) ||
+        line.match(/có\s*số\s*tiết\s*l[àa]\s*(\d+)/i) ||
+        line.match(/(\d+)\s*tiết/i);
       if (periodMatch) {
         periods = parseInt(periodMatch[1], 10) || 1;
       }
+
+      let cleanTitle = line
+        .replace(/[\(\[](?:\s*số\s*tiết\s*[:=]\s*)?\d+\s*tiết[\)\]]/gi, '')
+        .replace(/có\s*số\s*tiết\s*l[àa]\s*\d+/gi, '')
+        .replace(/[-–]\s*tuần\s*\d+/i, '')
+        .trim();
 
       items.push({
         id: `ppct-text-item-${orderCounter}`,
         orderNumber: orderCounter++,
         chapter: currentChapter,
-        lessonTitle: line,
+        lessonTitle: cleanTitle || line,
         periodCount: periods,
         timeFrame: `Tuần ${Math.ceil(orderCounter / 4) || 1}`,
         equipment: 'SGK, bảng phụ',
@@ -1670,26 +2034,27 @@ export async function parseDocxTeacherListFile(file: File): Promise<Teacher[]> {
 export function parseTextTeacherList(rawText: string): Teacher[] {
   if (!rawText || !rawText.trim()) return [];
 
+  const grid = convertMarkdownOrTextToGrid(rawText);
+  if (grid.length > 0) {
+    const teachers = extractTeachersFromGrid(grid);
+    if (teachers.length > 0) {
+      return teachers;
+    }
+  }
+
   const lines = rawText.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
-  const grid: string[][] = [];
+  const fallbackGrid: string[][] = [];
 
   lines.forEach((line) => {
-    // If line has tabs, split by tab
-    if (line.includes('\t')) {
-      grid.push(line.split('\t').map((c) => c.trim()));
-    } else if (line.includes('|')) {
-      grid.push(line.split('|').map((c) => c.trim()));
-    } else if (line.includes(' - ') || line.includes(';')) {
+    if (line.includes(' - ') || line.includes(';')) {
       const parts = line.includes(' - ') ? line.split(' - ') : line.split(';');
-      grid.push(parts.map((p) => p.trim()));
-    } else if (line.includes(',')) {
-      grid.push(line.split(',').map((c) => c.trim()));
+      fallbackGrid.push(parts.map((p) => p.trim()));
     } else {
-      grid.push([line]);
+      fallbackGrid.push([line]);
     }
   });
 
-  return extractTeachersFromGrid(grid);
+  return extractTeachersFromGrid(fallbackGrid);
 }
 
 // Function to export Teacher List to Excel
@@ -1845,4 +2210,59 @@ export function downloadSampleTeacherListExcel(): void {
   XLSX.utils.book_append_sheet(wb, ws, 'Danh_Sach_GV');
   XLSX.writeFile(wb, 'Mau_Danh_Sach_Giao_Vien_Chuan.xlsx');
 }
+
+// Export Teacher Timetable to Excel (.xlsx)
+export function exportTimetableByTeacherToExcel(
+  timetable: TimetableData,
+  teacherShortName: string,
+  teacherFullName: string,
+  schoolName: string = 'TRƯỜNG THCS ĐỒNG PHÚ - PHÂN HIỆU HẢI THÀNH'
+): void {
+  const wb = XLSX.utils.book_new();
+  const teacherSlots = timetable.slots.filter(
+    (s) => s.teacherShortName.trim().toLowerCase() === teacherShortName.trim().toLowerCase()
+  );
+
+  const data: any[][] = [
+    [schoolName],
+    [`THỜI KHÓA BIỂU GIẢNG DẠY CỦA GIÁO VIÊN: ${teacherFullName} (${teacherShortName})`],
+    [`Đợt: ${timetable.title} • Áp dụng từ: ${timetable.effectiveDate}`],
+    [''],
+    ['Thứ', 'Buổi', 'Tiết', 'Môn học', 'Lớp giảng dạy', 'Ghi chú'],
+  ];
+
+  const days = [
+    { num: 2, name: 'Thứ Hai' },
+    { num: 3, name: 'Thứ Ba' },
+    { num: 4, name: 'Thứ Tư' },
+    { num: 5, name: 'Thứ Năm' },
+    { num: 6, name: 'Thứ Sáu' },
+  ];
+
+  days.forEach((d) => {
+    ['morning', 'afternoon'].forEach((session) => {
+      const sessionLabel = session === 'morning' ? 'Sáng' : 'Chiều';
+      const periods = session === 'morning' ? [1, 2, 3, 4, 5] : [1, 2, 3, 4];
+      periods.forEach((p) => {
+        const slot = teacherSlots.find(
+          (s) => s.dayOfWeek === d.num && (s.session || (s.period > 5 ? 'afternoon' : 'morning')) === session && (s.period > 5 ? s.period - 5 : s.period) === p
+        );
+        data.push([
+          d.name,
+          sessionLabel,
+          `Tiết ${p}`,
+          slot ? slot.subject : '-',
+          slot ? slot.className : '-',
+          slot ? '' : 'Trống'
+        ]);
+      });
+    });
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws['!cols'] = [{ wch: 15 }, { wch: 10 }, { wch: 10 }, { wch: 22 }, { wch: 15 }, { wch: 15 }];
+  XLSX.utils.book_append_sheet(wb, ws, `TKB_${teacherShortName}`);
+  XLSX.writeFile(wb, `TKB_GV_${teacherShortName}_THCS_Dong_Phu.xlsx`);
+}
+
 

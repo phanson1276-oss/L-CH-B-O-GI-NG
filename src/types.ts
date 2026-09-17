@@ -48,23 +48,39 @@ export interface TimetableVersion {
 
 export interface PPCTItem {
   id: string;
-  orderNumber: number; // TT (1, 2, 3...)
-  chapter?: string; // Tên chương/Chủ đề (ví dụ: CHƯƠNG I. PHƯƠNG TRÌNH VÀ HỆ HAI PHƯƠNG TRÌNH...)
-  lessonTitle: string; // Tên chủ đề/Bài học (1)
-  periodCount: number; // Số tiết (2)
-  timeFrame: string; // Thời điểm thực hiện: Tuần 1, Tuần 1,2... (3)
-  equipment: string; // Thiết bị dạy học (4)
-  notes: string; // YCCĐ năng lực số / Ghi chú / Phòng học (5)
+  orderNumber: number; // Cột 1: STT / TT (1, 2, 3...)
+  ppctPeriod?: string; // Cột 2: Tiết theo PPCT (ví dụ: "1, 2" hoặc "3, 4, 5")
+  chapter?: string; // Tên chương/Chủ đề lớn
+  semester?: 1 | 2; // Học kỳ I hoặc Học kỳ II
+  lessonTitle: string; // Cột 3: Tên bài học / Chủ đề / Hoạt động
+  periodCount: number; // Cột 4: Số tiết
+  objectives?: string; // Cột 5: Yêu cầu cần đạt (YCCĐ)
+  digitalAndAiCompetencies?: string; // Cột 6: Năng lực số và AI (NLS & AI)
+  timeFrame?: string; // Thời điểm thực hiện: Tuần 1, Tuần 1,2...
+  equipment?: string; // Thiết bị dạy học
+  notes?: string; // Ghi chú bổ sung
+  isAssessment?: boolean; // Đánh dấu Kiểm tra giữa kì / Cuối kì
 }
 
 export interface PPCTPlan {
   id: string;
-  subject: string; // Toán
+  subject: string; // Toán, Khoa học tự nhiên (KHTN), Ngữ văn...
   grade: number; // 6, 7, 8, 9
-  schoolYear: string; // 2026-2027
-  totalPeriods: number; // 140
-  term1Periods: number; // 72 (18 tuần x 4 tiết)
-  term2Periods: number; // 68 (17 tuần x 4 tiết)
+  schoolYear: string; // 2026 - 2027
+  legalBasis?: string; // Theo CV 5512/BGDĐT-GDTrH và CV 5636/BGDĐT-GDTrH
+  governingBody?: string; // UBND Phường Đồng Hới – Trường THCS Đồng Phú
+  totalWeeks?: number; // 35 tuần
+  totalPeriods: number; // Tổng số tiết cả năm
+  term1Weeks?: number; // 18 tuần
+  term1PeriodsPerWeek?: number; // Số tiết/tuần HK1
+  term1Periods: number; // Tổng tiết HK1
+  term2Weeks?: number; // 17 tuần
+  term2PeriodsPerWeek?: number; // Số tiết/tuần HK2
+  term2Periods: number; // Tổng tiết HK2
+  approvalLocationDate?: string; // Đồng Hới, ngày 04 tháng 9 năm 2026
+  headmasterName?: string; // Ban Giám hiệu / Hiệu trưởng
+  headOfDepartmentName?: string; // Tổ trưởng chuyên môn
+  teacherName?: string; // Giáo viên thực hiện
   items: PPCTItem[];
 }
 
@@ -72,15 +88,18 @@ export interface LessonReportRow {
   id: string;
   dayOfWeek: number; // 2 (Hai), 3 (Ba), 4 (Tư), 5 (Năm), 6 (Sáu), 7 (Bảy)
   dayName: string; // Hai, Ba, Tư, Năm, Sáu, Bảy
-  dateString: string; // 22/12/2025
+  dateString: string; // 14/09/2026 or 14/9
+  dayDateDisplay?: string; // Thứ 2 – 14/9
+  dayLabel?: string; // Thứ 2
+  dateLabel?: string; // 14/9
   session: 'morning' | 'afternoon'; // Sáng / Chiều
   periodTKB: number; // Tiết theo TKB (1-10)
   subject: string; // Môn
-  className: string; // Lớp (vd: 8/1)
-  ppctPeriodNumber: number | string; // Tiết thứ theo PPCT (vd: 28)
-  lessonName: string; // Tên bài dạy (vd: Bài 1: Đơn thức)
-  equipment: string; // Thiết bị dạy học (vd: Thước thẳng, máy chiếu)
-  notes: string; // Ghi chú (vd: Tiết bù, KT 15p, Phòng học...)
+  className: string; // Lớp (vd: 7.1)
+  ppctPeriodNumber: number | string; // Tiết thứ theo phân phối chương trình (vd: 5)
+  lessonName: string; // Tên bài dạy
+  equipment?: string; // Thiết bị dạy học (tùy chọn)
+  notes: string; // Ghi chú
 }
 
 export interface WeeklyReportConfig {

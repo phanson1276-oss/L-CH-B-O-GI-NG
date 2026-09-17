@@ -411,7 +411,7 @@ export const PhieuBaoGiangMobileView: React.FC<PhieuBaoGiangMobileViewProps> = (
                       }`}
                     >
                       {isMorning ? <Sun className="w-3 h-3 text-amber-600" /> : <Moon className="w-3 h-3 text-indigo-600" />}
-                      <span>{isMorning ? 'Sáng' : 'Chiều'} • Tiết {row.period}</span>
+                      <span>{isMorning ? 'Sáng' : 'Chiều'} • Tiết {row.periodTKB} (TKB)</span>
                     </span>
                   </div>
 
@@ -427,8 +427,8 @@ export const PhieuBaoGiangMobileView: React.FC<PhieuBaoGiangMobileViewProps> = (
                     <span className="font-bold text-blue-900">
                       Môn: {row.subject}
                     </span>
-                    <span className="bg-slate-100 text-slate-700 font-bold px-2 py-0.5 rounded-md border border-slate-200">
-                      Tiết PPCT: <strong>{row.ppctIndex}</strong>
+                    <span className="bg-amber-50 text-amber-900 font-bold px-2 py-0.5 rounded-md border border-amber-200">
+                      Tiết thứ PPCT: <strong>{row.ppctPeriodNumber}</strong>
                     </span>
                   </div>
 

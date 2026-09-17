@@ -8,8 +8,10 @@ import { FileUploadModal } from './components/FileUploadModal';
 import { TeacherManagerModal } from './components/TeacherManagerModal';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { INITIAL_TIMETABLE, INITIAL_TIMETABLE_VERSIONS, INITIAL_PPCT_PLANS, TEACHERS_LIST, SCHOOL_INFO } from './data/mockData';
+import { FULL_STANDARD_PPCT_PLANS } from './data/ppctCurriculumData';
 import { TimetableData, PPCTPlan, TimetableSlot, PPCTItem, Teacher, TimetableVersion, DeviceMode } from './types';
 import { getSystemCurrentAcademicWeek, getTodaySystemInfo } from './utils/academicCalendar';
+import { isValidLessonTitle, normalizeSubjectName } from './utils/generator';
 import { CheckCircle, Info, Sparkles, School, ShieldCheck, Users, Upload, Smartphone, Monitor, Save, Home } from 'lucide-react';
 
 const STORAGE_KEYS = {
@@ -21,17 +23,14 @@ const STORAGE_KEYS = {
 
 export default function App() {
   const [activeModule, setActiveModule] = useState<1 | 2 | 3 | 4>(4); // Default to Module 4 (Phiếu Báo Giảng)
-  // Tuần thực hiện mặc định theo ngày tháng của hệ thống (Tính tự động theo năm học và ngày hiện hành)
-  const [selectedWeek, setSelectedWeek] = useState<number>(() => {
-    return getSystemCurrentAcademicWeek();
-  });
+  // Tuần thực hiện mặc định là Tuần 2 theo TKB số 2
+  const [selectedWeek, setSelectedWeek] = useState<number>(2);
   const [selectedTeacherShortName, setSelectedTeacherShortName] = useState<string>('T.Sơn'); // Thầy Sơn (TTCM - Toán & KHTN)
 
-  // Return to Home handler (Trở về module 4 - Phiếu Báo Giảng và tuần hệ thống)
+  // Return to Home handler (Trở về module 4 - Phiếu Báo Giảng và tuần 2)
   const handleGoHome = () => {
     setActiveModule(4);
-    const systemInfo = getTodaySystemInfo();
-    setSelectedWeek(systemInfo.currentWeek);
+    setSelectedWeek(2);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -76,7 +75,23 @@ export default function App() {
       const saved = localStorage.getItem(STORAGE_KEYS.TIMETABLE_VERSIONS);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const hasV2 = parsed.some((v: TimetableVersion) => v.id === 'tkb-v2' || v.effectiveFromWeek === 2);
+          if (!hasV2) {
+            const updated = parsed.map((v: TimetableVersion) =>
+              v.id === 'tkb-v1' ? { ...v, effectiveToWeek: 1 } : v
+            );
+            const tkb2 = INITIAL_TIMETABLE_VERSIONS.find((v) => v.id === 'tkb-v2');
+            if (tkb2) {
+              const merged = [...updated, tkb2];
+              try {
+                localStorage.setItem(STORAGE_KEYS.TIMETABLE_VERSIONS, JSON.stringify(merged));
+              } catch {}
+              return merged;
+            }
+          }
+          return parsed;
+        }
       }
     } catch (e) {
       console.warn('Error reading saved timetable versions:', e);
@@ -84,14 +99,20 @@ export default function App() {
     return INITIAL_TIMETABLE_VERSIONS;
   });
 
-  const [activeTimetableId, setActiveTimetableId] = useState<string>(INITIAL_TIMETABLE.id);
+  const [activeTimetableId, setActiveTimetableId] = useState<string>('tkb-v2');
 
   const [timetable, setTimetable] = useState<TimetableData>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.TIMETABLE);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed && Array.isArray(parsed.slots)) return parsed;
+        if (parsed && Array.isArray(parsed.slots)) {
+          // If stored timetable is still v1 or lacks v2, upgrade to TKB v2
+          if (parsed.id === 'tkb-v1' || (parsed.effectiveFromWeek ?? 1) === 1) {
+            return INITIAL_TIMETABLE;
+          }
+          return parsed;
+        }
       }
     } catch (e) {
       console.warn('Error reading saved timetable:', e);
@@ -102,9 +123,59 @@ export default function App() {
   const [ppctPlans, setPpctPlans] = useState<PPCTPlan[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.PPCT_PLANS);
-      if (saved) {
+      if (saved !== null) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) {
+          // Lọc bỏ triệt để KHTN phân môn Vật lý
+          let cleaned = parsed.filter(
+            (p: PPCTPlan) =>
+              !p.id?.startsWith('khtn2') &&
+              !p.subject?.toLowerCase().includes('vật lý') &&
+              !p.subject?.toLowerCase().includes('vật lí')
+          );
+          // Tự động bổ sung các môn KHTN chuẩn nếu chưa có
+          const hasKHTN8 = cleaned.some((p: PPCTPlan) => p.grade === 8 && (p.subject.includes('Khoa học tự nhiên') || p.id === 'khtn-8'));
+          if (!hasKHTN8) {
+            const missingKHTN = FULL_STANDARD_PPCT_PLANS.filter((p: PPCTPlan) => p.id.startsWith('khtn-'));
+            cleaned = [...cleaned, ...missingKHTN];
+          }
+
+          // Auto-heal any mangled or purely numeric lesson titles (e.g. "1, 2" or "của đơn thức Thu")
+          cleaned = cleaned.map((plan: PPCTPlan) => {
+            const hasMangledTitles = plan.items?.some(
+              (it) => !isValidLessonTitle(it.lessonTitle) || it.lessonTitle === 'của đơn thức Thu'
+            );
+            if (!hasMangledTitles) return plan;
+
+            const normSubj = normalizeSubjectName(plan.subject || '');
+            const stdPlan = FULL_STANDARD_PPCT_PLANS.find(
+              (sp) => sp.grade === plan.grade && normalizeSubjectName(sp.subject) === normSubj
+            );
+            if (!stdPlan) return plan;
+
+            const healedItems = plan.items.map((it, idx) => {
+              if (isValidLessonTitle(it.lessonTitle) && it.lessonTitle !== 'của đơn thức Thu') {
+                return it;
+              }
+              const stdItem = stdPlan.items[idx] || stdPlan.items.find((si) => si.orderNumber === it.orderNumber);
+              if (!stdItem) return it;
+              return {
+                ...it,
+                lessonTitle: stdItem.lessonTitle,
+                notes: (!it.notes || it.notes === 'của đơn thức Thu' || it.notes.startsWith('của đơn thức')) ? stdItem.notes : it.notes,
+                equipment: it.equipment || stdItem.equipment,
+                periodCount: it.periodCount || stdItem.periodCount,
+              };
+            });
+
+            return {
+              ...plan,
+              items: healedItems,
+            };
+          });
+
+          return cleaned;
+        }
       }
     } catch (e) {
       console.warn('Error reading saved ppct plans:', e);
@@ -151,6 +222,25 @@ export default function App() {
   const [isTeacherManagerOpen, setIsTeacherManagerOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // Compact header state (collapsed header to maximize workspace)
+  const [isCompactHeader, setIsCompactHeader] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('app_header_compact') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleToggleCompactHeader = () => {
+    setIsCompactHeader((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('app_header_compact', String(next));
+      } catch {}
+      return next;
+    });
+  };
+
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 4000);
@@ -196,7 +286,8 @@ export default function App() {
       localStorage.setItem(STORAGE_KEYS.TEACHERS, JSON.stringify(teachers));
       localStorage.setItem(STORAGE_KEYS.TIMETABLE, JSON.stringify(timetable));
       localStorage.setItem(STORAGE_KEYS.TIMETABLE_VERSIONS, JSON.stringify(timetableVersions));
-      showToast(`✓ Đã lưu toàn bộ Thời khóa biểu & Danh sách ${teachers.length} giáo viên vào bộ nhớ thành công!`);
+      localStorage.setItem(STORAGE_KEYS.PPCT_PLANS, JSON.stringify(ppctPlans));
+      showToast(`✓ Đã lưu toàn bộ Thời khóa biểu, PPCT & Danh sách ${teachers.length} giáo viên vào bộ nhớ thành công!`);
     } catch (e) {
       showToast('Có lỗi khi lưu dữ liệu.');
     }
@@ -381,7 +472,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col font-sans">
-      {/* Official Header */}
+      {/* Official Header with Collapsible Compact Workspace Mode */}
       <Header
         activeModule={activeModule}
         setActiveModule={setActiveModule}
@@ -395,13 +486,15 @@ export default function App() {
         setDeviceMode={handleSetDeviceMode}
         isSimulatedFrame={isSimulatedFrame}
         setIsSimulatedFrame={setIsSimulatedFrame}
+        isCompactHeader={isCompactHeader}
+        onToggleCompactHeader={handleToggleCompactHeader}
       />
 
-      {/* Main Content Area */}
+      {/* Main Content Area - Expands Vertically in Compact Mode */}
       <main
-        className={`flex-1 w-full mx-auto p-3 sm:p-6 lg:p-8 space-y-6 ${
-          deviceMode === 'mobile' ? 'max-w-2xl pb-24' : 'max-w-7xl'
-        }`}
+        className={`flex-1 w-full mx-auto transition-all ${
+          isCompactHeader ? 'p-2 sm:p-4 lg:p-5 space-y-3.5' : 'p-3 sm:p-5 lg:p-6 space-y-5'
+        } ${deviceMode === 'mobile' ? 'max-w-2xl pb-24' : 'max-w-7xl'}`}
       >
         {/* Simulated Phone Frame (if enabled by user on desktop) */}
         {deviceMode === 'mobile' && isSimulatedFrame && (

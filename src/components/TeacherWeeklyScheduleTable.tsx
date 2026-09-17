@@ -13,6 +13,7 @@ import {
   Sparkles,
   MessageSquareQuote,
   School,
+  Edit3,
 } from 'lucide-react';
 import { Teacher, TimetableData, TimetableSlot } from '../types';
 import { SCHOOL_INFO } from '../data/mockData';
@@ -25,6 +26,12 @@ interface TeacherWeeklyScheduleTableProps {
   onSelectTeacher?: (shortName: string) => void;
   onClose?: () => void;
   isModal?: boolean;
+  onEditSlot?: (slotData: {
+    day: number;
+    period: number;
+    className: string;
+    session: 'morning' | 'afternoon';
+  }) => void;
 }
 
 const DAY_LABELS: { [key: number]: string } = {
@@ -43,6 +50,7 @@ export const TeacherWeeklyScheduleTable: React.FC<TeacherWeeklyScheduleTableProp
   onSelectTeacher,
   onClose,
   isModal = false,
+  onEditSlot,
 }) => {
   const [currentShortName, setCurrentShortName] = useState<string>(
     selectedTeacherShortName || teachers[0]?.shortName || 'T.Sơn'
@@ -447,12 +455,17 @@ export const TeacherWeeklyScheduleTable: React.FC<TeacherWeeklyScheduleTableProp
                 <th className="p-2.5 border border-slate-900 min-w-[160px] text-center uppercase tracking-wider">
                   Môn học
                 </th>
+                {onEditSlot && (
+                  <th className="p-2.5 border border-slate-900 w-16 text-center uppercase tracking-wider print:hidden">
+                    Sửa
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody>
               {sortedTeacherSlots.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="p-8 text-center text-slate-400 border border-slate-900">
+                  <td colSpan={onEditSlot ? 7 : 6} className="p-8 text-center text-slate-400 border border-slate-900">
                     Giáo viên này hiện chưa có tiết dạy nào được phân công trong thời khóa biểu tuần.
                   </td>
                 </tr>
@@ -548,7 +561,22 @@ export const TeacherWeeklyScheduleTable: React.FC<TeacherWeeklyScheduleTableProp
                       </td>
 
                       {/* Cột 5: Môn học */}
-                      <td className="p-2.5 border border-slate-900 font-bold text-slate-900">
+                      <td
+                        className={`p-2.5 border border-slate-900 font-bold text-slate-900 ${
+                          onEditSlot ? 'cursor-pointer hover:bg-amber-100/70 transition-colors' : ''
+                        }`}
+                        onClick={() => {
+                          if (onEditSlot) {
+                            onEditSlot({
+                              day: slot.dayOfWeek,
+                              period: periodNum,
+                              className: slot.className,
+                              session: sess as 'morning' | 'afternoon',
+                            });
+                          }
+                        }}
+                        title={onEditSlot ? 'Nhấp để chỉnh sửa tiết học này' : undefined}
+                      >
                         <span className="text-slate-900">{slot.subject}</span>
                         {slot.room && (
                           <span className="ml-2 text-[10px] text-slate-500 font-normal">
@@ -556,6 +584,28 @@ export const TeacherWeeklyScheduleTable: React.FC<TeacherWeeklyScheduleTableProp
                           </span>
                         )}
                       </td>
+
+                      {/* Cột Thao tác: Sửa */}
+                      {onEditSlot && (
+                        <td className="p-2 border border-slate-900 text-center print:hidden">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onEditSlot({
+                                day: slot.dayOfWeek,
+                                period: periodNum,
+                                className: slot.className,
+                                session: sess as 'morning' | 'afternoon',
+                              })
+                            }
+                            className="p-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white transition-all shadow-2xs font-semibold text-xs inline-flex items-center gap-1"
+                            title="Chỉnh sửa môn học, lớp hoặc giáo viên cho tiết này"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">Sửa</span>
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })
@@ -566,7 +616,7 @@ export const TeacherWeeklyScheduleTable: React.FC<TeacherWeeklyScheduleTableProp
                 <td colSpan={3} className="p-3 border border-slate-900 text-left">
                   TỔNG CỘNG SỐ TIẾT TRONG TUẦN:
                 </td>
-                <td colSpan={3} className="p-3 border border-slate-900 text-left font-black text-blue-900">
+                <td colSpan={onEditSlot ? 4 : 3} className="p-3 border border-slate-900 text-left font-black text-blue-900">
                   {stats.total} tiết (Buổi Sáng: {stats.morning} tiết • Buổi Chiều: {stats.afternoon} tiết)
                 </td>
               </tr>

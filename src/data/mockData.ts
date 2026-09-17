@@ -1,7 +1,8 @@
 import { Teacher, TimetableData, PPCTPlan, TimetableSlot, TimetableVersion } from '../types';
 import { FULL_STANDARD_PPCT_PLANS, STANDARD_SUBJECTS_LIST, GRADES_LIST } from './ppctCurriculumData';
+import { TKB_V2_SLOTS } from './tkbV2Data';
 
-export { STANDARD_SUBJECTS_LIST, GRADES_LIST };
+export { STANDARD_SUBJECTS_LIST, GRADES_LIST, TKB_V2_SLOTS };
 
 export const SCHOOL_INFO = {
   name: 'TRƯỜNG THCS ĐỒNG PHÚ',
@@ -481,22 +482,33 @@ export const INITIAL_TIMETABLE_VERSIONS: TimetableVersion[] = [
     title: 'TKB số 1: Áp dụng từ Tuần 01 (Bắt đầu từ 07/9/2026)',
     effectiveDate: '07/09/2026',
     effectiveFromWeek: 1,
-    effectiveToWeek: undefined,
+    effectiveToWeek: 1,
     schoolYear: '2026 - 2027',
     schoolName: 'Trường THCS Đồng Phú - Phân hiệu Hải Thành',
     slots: initialSlots,
-    note: 'Thời khóa biểu chính thức HK I năm học 2026 - 2027 phân hiệu Hải Thành',
+    note: 'Thời khóa biểu chính thức HK I năm học 2026 - 2027 phân hiệu Hải Thành (Áp dụng Tuần 1)',
+  },
+  {
+    id: 'tkb-v2',
+    title: 'TKB số 2: Áp dụng từ Tuần 02 (Bắt đầu từ 14/9/2026)',
+    effectiveDate: '14/09/2026',
+    effectiveFromWeek: 2,
+    effectiveToWeek: undefined,
+    schoolYear: '2026 - 2027',
+    schoolName: 'Trường THCS Đồng Phú - Phân hiệu Hải Thành',
+    slots: TKB_V2_SLOTS,
+    note: 'Thời khóa biểu số 2 chính thức áp dụng từ Tuần 02 (Bắt đầu từ 14/9/2026)',
   },
 ];
 
 export const INITIAL_TIMETABLE: TimetableData = {
-  id: 'tkb-v1',
-  title: 'TKB số 1: Áp dụng từ Tuần 01 (Bắt đầu từ 07/9/2026)',
-  effectiveDate: '07/09/2026',
-  effectiveFromWeek: 1,
+  id: 'tkb-v2',
+  title: 'TKB số 2: Áp dụng từ Tuần 02 (Bắt đầu từ 14/9/2026)',
+  effectiveDate: '14/09/2026',
+  effectiveFromWeek: 2,
   schoolYear: '2026 - 2027',
   schoolName: 'Trường THCS Đồng Phú - Phân hiệu Hải Thành',
-  slots: initialSlots,
+  slots: TKB_V2_SLOTS,
 };
 
 // PPCT Plans - full standard GDPT 2018 for THCS Đồng Phú (all subjects across grades 6, 7, 8, 9)

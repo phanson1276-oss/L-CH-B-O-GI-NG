@@ -1,38 +1,41 @@
 import { LessonReportRow, WeeklyReportConfig } from '../types';
-import { computeReportRowSpans } from './generator';
+import { computeReportRowSpans, sortReportRows, formatDayDateParts } from './generator';
 
 export function exportLessonReportToWord(rows: LessonReportRow[], config: WeeklyReportConfig) {
-  const rowSpans = computeReportRowSpans(rows);
+  const sortedRows = sortReportRows(rows);
+  const spans = computeReportRowSpans(sortedRows);
 
-  const tableRowsHtml = rows
-    .map(
-      (r, idx) => {
-        const span = rowSpans[idx] || { dayRowSpan: 1, sessionRowSpan: 1 };
-        const dayCell =
-          span.dayRowSpan > 0
-            ? `<td rowspan="${span.dayRowSpan}" style="text-align: center; border: 1px solid #000; padding: 6px; font-weight: bold; vertical-align: middle;">${r.dayName}</td>
-      <td rowspan="${span.dayRowSpan}" style="text-align: center; border: 1px solid #000; padding: 6px; vertical-align: middle;">${r.dateString}</td>`
-            : '';
-        const sessionCell =
-          span.sessionRowSpan > 0
-            ? `<td rowspan="${span.sessionRowSpan}" style="text-align: center; border: 1px solid #000; padding: 6px; vertical-align: middle; font-weight: bold;">${r.session === 'morning' ? 'Sáng' : 'Chiều'}</td>`
-            : '';
+  const tableRowsHtml = sortedRows
+    .map((r, idx) => {
+      const span = spans[idx] || { dayRowSpan: 1, sessionRowSpan: 1 };
+      const { dayLabel, dateLabel } = r.dayLabel && r.dateLabel
+        ? { dayLabel: r.dayLabel, dateLabel: r.dateLabel }
+        : formatDayDateParts(r.dayOfWeek, r.dateString, r.dayDateDisplay);
 
-        return `
+      const dayCellHtml = span.dayRowSpan > 0
+        ? `<td rowspan="${span.dayRowSpan}" style="text-align: center; border: 1px solid #000; padding: 6px 4px; vertical-align: middle;">
+            <div style="font-weight: bold; font-size: 10.5pt;">${dayLabel}</div>
+            ${dateLabel ? `<div style="font-size: 9.5pt; font-weight: normal; margin-top: 2px;">${dateLabel}</div>` : ''}
+          </td>`
+        : '';
+
+      const sessionCellHtml = span.sessionRowSpan > 0
+        ? `<td rowspan="${span.sessionRowSpan}" style="text-align: center; border: 1px solid #000; padding: 6px; font-weight: 500; vertical-align: middle;">${r.session === 'morning' ? 'Sáng' : 'Chiều'}</td>`
+        : '';
+
+      return `
     <tr>
-      ${dayCell}
-      ${sessionCell}
+      ${dayCellHtml}
+      ${sessionCellHtml}
       <td style="text-align: center; border: 1px solid #000; padding: 6px; font-weight: bold;">${r.periodTKB}</td>
       <td style="text-align: center; border: 1px solid #000; padding: 6px;">${r.subject}</td>
       <td style="text-align: center; border: 1px solid #000; padding: 6px; font-weight: bold;">${r.className}</td>
       <td style="text-align: center; border: 1px solid #000; padding: 6px; font-weight: bold;">${r.ppctPeriodNumber}</td>
       <td style="text-align: left; border: 1px solid #000; padding: 6px;">${r.lessonName}</td>
-      <td style="text-align: left; border: 1px solid #000; padding: 6px;">${r.equipment || ''}</td>
       <td style="text-align: left; border: 1px solid #000; padding: 6px;">${r.notes || ''}</td>
     </tr>
   `;
-      }
-    )
+    })
     .join('');
 
   const wordHtml = `
@@ -137,15 +140,13 @@ export function exportLessonReportToWord(rows: LessonReportRow[], config: Weekly
     <table>
       <thead>
         <tr>
-          <th style="width: 6%;">Ngày thứ</th>
-          <th style="width: 8%;">Ngày</th>
-          <th style="width: 6%;">Buổi</th>
-          <th style="width: 6%;">Tiết theo TKB</th>
-          <th style="width: 9%;">Môn</th>
-          <th style="width: 6%;">Lớp</th>
-          <th style="width: 7%;">Tiết thứ theo PPCT</th>
+          <th style="width: 14%;">Thứ ngày</th>
+          <th style="width: 8%;">Buổi</th>
+          <th style="width: 10%;">Tiết theo TKB</th>
+          <th style="width: 10%;">Môn</th>
+          <th style="width: 8%;">Lớp</th>
+          <th style="width: 12%;">Tiết thứ theo PPCT</th>
           <th style="width: 26%;">Tên bài dạy</th>
-          <th style="width: 14%;">Thiết bị dạy học</th>
           <th style="width: 12%;">Ghi chú</th>
         </tr>
       </thead>

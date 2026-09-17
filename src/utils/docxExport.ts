@@ -16,7 +16,7 @@ import {
   ISectionOptions,
 } from 'docx';
 import { LessonReportRow, WeeklyReportConfig, TimetableData, PPCTPlan, Teacher, TimetableVersion } from '../types';
-import { computeReportRowSpans, generateWeeklyReport } from './generator';
+import { computeReportRowSpans, generateWeeklyReport, sortReportRows, formatDayDateParts } from './generator';
 import { getAcademicWeekDates } from './academicCalendar';
 
 // Thin solid black border for standard Vietnamese administrative tables
@@ -48,16 +48,14 @@ const transparentBorders = {
 
 // Standard column widths summing exactly to 10546 DXA (~186 mm, fitting 210mm A4 portrait with 12mm margins)
 const COL_WIDTHS = {
-  dayName: 750,       // ~13.2 mm (7.1%)
-  dateString: 850,    // ~15.0 mm (8.1%)
-  session: 650,       // ~11.5 mm (6.2%)
-  periodTKB: 650,     // ~11.5 mm (6.2%)
-  subject: 950,       // ~16.8 mm (9.0%)
-  className: 650,     // ~11.5 mm (6.2%)
-  ppctPeriod: 750,    // ~13.2 mm (7.1%)
-  lessonName: 3246,   // ~57.2 mm (30.8%)
-  equipment: 1350,    // ~23.8 mm (12.8%)
-  notes: 1190,        // ~21.0 mm (11.3%)
+  dayDate: 1550,      // ~27.3 mm (14.7%) - Thứ ngày (Thứ 2 – 14/9)
+  session: 750,       // ~13.2 mm (7.1%) - Buổi (Sáng / Chiều)
+  periodTKB: 850,     // ~15.0 mm (8.1%) - Tiết theo TKB
+  subject: 1050,      // ~18.5 mm (10.0%) - Môn
+  className: 800,     // ~14.1 mm (7.6%) - Lớp
+  ppctPeriod: 1100,   // ~19.4 mm (10.4%) - Tiết theo PPCT
+  lessonName: 3246,   // ~57.2 mm (30.8%) - Tên bài dạy
+  notes: 1200,        // ~21.2 mm (11.4%) - Ghi chú
 };
 
 // Create a section for a single teacher's lesson report that fits neatly on an A4 portrait page
@@ -232,15 +230,13 @@ export function buildTeacherDocxSection(
   const cellMargins = { top: 40, bottom: 40, left: 60, right: 60 };
 
   const headerCells = [
-    { text: 'Thứ', width: COL_WIDTHS.dayName },
-    { text: 'Ngày', width: COL_WIDTHS.dateString },
+    { text: 'Thứ ngày', width: COL_WIDTHS.dayDate },
     { text: 'Buổi', width: COL_WIDTHS.session },
-    { text: 'Tiết TKB', width: COL_WIDTHS.periodTKB },
+    { text: 'Tiết theo TKB', width: COL_WIDTHS.periodTKB },
     { text: 'Môn', width: COL_WIDTHS.subject },
     { text: 'Lớp', width: COL_WIDTHS.className },
-    { text: 'Tiết PPCT', width: COL_WIDTHS.ppctPeriod },
+    { text: 'Tiết theo PPCT', width: COL_WIDTHS.ppctPeriod },
     { text: 'Tên bài dạy', width: COL_WIDTHS.lessonName },
-    { text: 'Thiết bị DH', width: COL_WIDTHS.equipment },
     { text: 'Ghi chú', width: COL_WIDTHS.notes },
   ].map(
     (col) =>
@@ -281,7 +277,7 @@ export function buildTeacherDocxSection(
       new TableRow({
         children: [
           new TableCell({
-            columnSpan: 10,
+            columnSpan: 8,
             borders: tableBorders,
             margins: cellMargins,
             verticalAlign: VerticalAlign.CENTER,
@@ -303,158 +299,63 @@ export function buildTeacherDocxSection(
       })
     );
   } else {
-    rows.forEach((r, idx) => {
-      const span = rowSpans[idx] || { dayRowSpan: 1, sessionRowSpan: 1 };
+    const sortedRows = sortReportRows(rows);
+    const spans = computeReportRowSpans(sortedRows);
+
+    sortedRows.forEach((r, idx) => {
+      const span = spans[idx] || { dayRowSpan: 1, sessionRowSpan: 1 };
+      const { dayLabel, dateLabel } = r.dayLabel && r.dateLabel
+        ? { dayLabel: r.dayLabel, dateLabel: r.dateLabel }
+        : formatDayDateParts(r.dayOfWeek, r.dateString, r.dayDateDisplay);
       const rowChildren: TableCell[] = [];
 
-      // Col 1: Day of week
-      if (span.dayRowSpan > 1) {
+      // Col 1: Thứ ngày (Bố trí: Thứ ở hàng trên, ngày nằm ở hàng dưới)
+      if (span.dayRowSpan > 0) {
         rowChildren.push(
           new TableCell({
-            width: { size: COL_WIDTHS.dayName, type: WidthType.DXA },
-            borders: tableBorders,
-            margins: cellMargins,
-            verticalAlign: VerticalAlign.CENTER,
-            verticalMerge: VerticalMergeType.RESTART,
-            children: [
-              new Paragraph({
-                alignment: AlignmentType.CENTER,
-                spacing: { line: 200, before: 0, after: 0 },
-                children: [
-                  new TextRun({
-                    text: r.dayName,
-                    bold: true,
-                    size: 18,
-                    font: 'Times New Roman',
-                  }),
-                ],
-              }),
-            ],
-          })
-        );
-      } else if (span.dayRowSpan === 1) {
-        rowChildren.push(
-          new TableCell({
-            width: { size: COL_WIDTHS.dayName, type: WidthType.DXA },
+            rowSpan: span.dayRowSpan,
+            width: { size: COL_WIDTHS.dayDate, type: WidthType.DXA },
             borders: tableBorders,
             margins: cellMargins,
             verticalAlign: VerticalAlign.CENTER,
             children: [
               new Paragraph({
                 alignment: AlignmentType.CENTER,
-                spacing: { line: 200, before: 0, after: 0 },
+                spacing: { line: 200, before: 0, after: dateLabel ? 20 : 0 },
                 children: [
                   new TextRun({
-                    text: r.dayName,
+                    text: dayLabel,
                     bold: true,
-                    size: 18,
+                    size: 17,
                     font: 'Times New Roman',
                   }),
                 ],
               }),
+              ...(dateLabel
+                ? [
+                    new Paragraph({
+                      alignment: AlignmentType.CENTER,
+                      spacing: { line: 200, before: 20, after: 0 },
+                      children: [
+                        new TextRun({
+                          text: dateLabel,
+                          size: 16,
+                          font: 'Times New Roman',
+                        }),
+                      ],
+                    }),
+                  ]
+                : []),
             ],
-          })
-        );
-      } else {
-        // Continue vertical merge
-        rowChildren.push(
-          new TableCell({
-            width: { size: COL_WIDTHS.dayName, type: WidthType.DXA },
-            borders: tableBorders,
-            margins: cellMargins,
-            verticalMerge: VerticalMergeType.CONTINUE,
-            children: [],
           })
         );
       }
 
-      // Col 2: Date
-      if (span.dayRowSpan > 1) {
+      // Col 2: Buổi (Gộp ô khi cùng Thứ ngày + cùng Buổi)
+      if (span.sessionRowSpan > 0) {
         rowChildren.push(
           new TableCell({
-            width: { size: COL_WIDTHS.dateString, type: WidthType.DXA },
-            borders: tableBorders,
-            margins: cellMargins,
-            verticalAlign: VerticalAlign.CENTER,
-            verticalMerge: VerticalMergeType.RESTART,
-            children: [
-              new Paragraph({
-                alignment: AlignmentType.CENTER,
-                spacing: { line: 200, before: 0, after: 0 },
-                children: [
-                  new TextRun({
-                    text: r.dateString,
-                    size: 17,
-                    font: 'Times New Roman',
-                  }),
-                ],
-              }),
-            ],
-          })
-        );
-      } else if (span.dayRowSpan === 1) {
-        rowChildren.push(
-          new TableCell({
-            width: { size: COL_WIDTHS.dateString, type: WidthType.DXA },
-            borders: tableBorders,
-            margins: cellMargins,
-            verticalAlign: VerticalAlign.CENTER,
-            children: [
-              new Paragraph({
-                alignment: AlignmentType.CENTER,
-                spacing: { line: 200, before: 0, after: 0 },
-                children: [
-                  new TextRun({
-                    text: r.dateString,
-                    size: 17,
-                    font: 'Times New Roman',
-                  }),
-                ],
-              }),
-            ],
-          })
-        );
-      } else {
-        // Continue vertical merge
-        rowChildren.push(
-          new TableCell({
-            width: { size: COL_WIDTHS.dateString, type: WidthType.DXA },
-            borders: tableBorders,
-            margins: cellMargins,
-            verticalMerge: VerticalMergeType.CONTINUE,
-            children: [],
-          })
-        );
-      }
-
-      // Col 3: Session
-      if (span.sessionRowSpan > 1) {
-        rowChildren.push(
-          new TableCell({
-            width: { size: COL_WIDTHS.session, type: WidthType.DXA },
-            borders: tableBorders,
-            margins: cellMargins,
-            verticalAlign: VerticalAlign.CENTER,
-            verticalMerge: VerticalMergeType.RESTART,
-            children: [
-              new Paragraph({
-                alignment: AlignmentType.CENTER,
-                spacing: { line: 200, before: 0, after: 0 },
-                children: [
-                  new TextRun({
-                    text: r.session === 'morning' ? 'Sáng' : 'Chiều',
-                    bold: true,
-                    size: 17,
-                    font: 'Times New Roman',
-                  }),
-                ],
-              }),
-            ],
-          })
-        );
-      } else if (span.sessionRowSpan === 1) {
-        rowChildren.push(
-          new TableCell({
+            rowSpan: span.sessionRowSpan,
             width: { size: COL_WIDTHS.session, type: WidthType.DXA },
             borders: tableBorders,
             margins: cellMargins,
@@ -466,7 +367,6 @@ export function buildTeacherDocxSection(
                 children: [
                   new TextRun({
                     text: r.session === 'morning' ? 'Sáng' : 'Chiều',
-                    bold: true,
                     size: 17,
                     font: 'Times New Roman',
                   }),
@@ -475,20 +375,9 @@ export function buildTeacherDocxSection(
             ],
           })
         );
-      } else {
-        // Continue vertical merge
-        rowChildren.push(
-          new TableCell({
-            width: { size: COL_WIDTHS.session, type: WidthType.DXA },
-            borders: tableBorders,
-            margins: cellMargins,
-            verticalMerge: VerticalMergeType.CONTINUE,
-            children: [],
-          })
-        );
       }
 
-      // Col 4: Tiết TKB
+      // Col 3: Tiết theo TKB (Hiển thị riêng từng tiết)
       rowChildren.push(
         new TableCell({
           width: { size: COL_WIDTHS.periodTKB, type: WidthType.DXA },
@@ -512,7 +401,7 @@ export function buildTeacherDocxSection(
         })
       );
 
-      // Col 5: Môn
+      // Col 4: Môn (Hiển thị riêng từng tiết)
       rowChildren.push(
         new TableCell({
           width: { size: COL_WIDTHS.subject, type: WidthType.DXA },
@@ -535,7 +424,7 @@ export function buildTeacherDocxSection(
         })
       );
 
-      // Col 6: Lớp
+      // Col 5: Lớp (Hiển thị riêng từng tiết)
       rowChildren.push(
         new TableCell({
           width: { size: COL_WIDTHS.className, type: WidthType.DXA },
@@ -559,7 +448,7 @@ export function buildTeacherDocxSection(
         })
       );
 
-      // Col 7: Tiết PPCT
+      // Col 6: Tiết thứ theo PPCT (Hiển thị riêng từng tiết)
       rowChildren.push(
         new TableCell({
           width: { size: COL_WIDTHS.ppctPeriod, type: WidthType.DXA },
@@ -583,7 +472,7 @@ export function buildTeacherDocxSection(
         })
       );
 
-      // Col 8: Tên bài dạy
+      // Col 7: Tên bài dạy (Hiển thị riêng từng tiết)
       rowChildren.push(
         new TableCell({
           width: { size: COL_WIDTHS.lessonName, type: WidthType.DXA },
@@ -597,7 +486,7 @@ export function buildTeacherDocxSection(
               children: [
                 new TextRun({
                   text: r.lessonName,
-                  size: 17, // 8.5pt
+                  size: 17,
                   font: 'Times New Roman',
                 }),
               ],
@@ -606,30 +495,7 @@ export function buildTeacherDocxSection(
         })
       );
 
-      // Col 9: Thiết bị DH
-      rowChildren.push(
-        new TableCell({
-          width: { size: COL_WIDTHS.equipment, type: WidthType.DXA },
-          borders: tableBorders,
-          margins: cellMargins,
-          verticalAlign: VerticalAlign.CENTER,
-          children: [
-            new Paragraph({
-              alignment: AlignmentType.LEFT,
-              spacing: { line: 200, before: 0, after: 0 },
-              children: [
-                new TextRun({
-                  text: r.equipment || '',
-                  size: 16, // 8pt
-                  font: 'Times New Roman',
-                }),
-              ],
-            }),
-          ],
-        })
-      );
-
-      // Col 10: Ghi chú
+      // Col 8: Ghi chú (Hiển thị riêng từng tiết)
       rowChildren.push(
         new TableCell({
           width: { size: COL_WIDTHS.notes, type: WidthType.DXA },
@@ -643,7 +509,7 @@ export function buildTeacherDocxSection(
               children: [
                 new TextRun({
                   text: r.notes || '',
-                  size: 16, // 8pt
+                  size: 16,
                   font: 'Times New Roman',
                 }),
               ],

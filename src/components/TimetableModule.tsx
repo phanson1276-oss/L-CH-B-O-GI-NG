@@ -33,10 +33,12 @@ import {
 import { TimetableData, TimetableSlot, Teacher, TimetableVersion, DeviceMode } from '../types';
 import { TEACHERS_LIST, CLASSES_LIST, SCHOOL_INFO, INITIAL_TIMETABLE, INITIAL_TIMETABLE_VERSIONS } from '../data/mockData';
 import { TimetableVersionModal } from './TimetableVersionModal';
+import { TimetableSlotModal, SlotEditorData } from './TimetableSlotModal';
 import { TimetableMobileView } from './TimetableMobileView';
 import { ConfirmModal, ConfirmDialogState } from './ConfirmModal';
 import { TeacherWeeklyScheduleTable } from './TeacherWeeklyScheduleTable';
 import { exportTimetableToPdf } from '../utils/pdfExport';
+import { exportTimetableByTeacherToExcel } from '../utils/excelExporter';
 import * as XLSX from 'xlsx';
 
 interface TimetableModuleProps {
@@ -94,14 +96,7 @@ export const TimetableModule: React.FC<TimetableModuleProps> = ({
   const [mobileTKBFormat, setMobileTKBFormat] = useState<'schedule' | 'matrix'>('schedule');
   const [viewMode, setViewMode] = useState<'matrix' | 'teacher' | 'weekly-schedule'>('matrix');
   const [sessionFilter, setSessionFilter] = useState<'all' | 'morning' | 'afternoon'>('all');
-  const [editingSlot, setEditingSlot] = useState<{
-    day: number;
-    period: number;
-    className: string;
-    session: 'morning' | 'afternoon';
-  } | null>(null);
-  const [editSubject, setEditSubject] = useState('');
-  const [editTeacher, setEditTeacher] = useState('');
+  const [slotEditorData, setSlotEditorData] = useState<SlotEditorData | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [notification, setNotification] = useState<{ type: 'success' | 'info'; message: string } | null>(null);
   const [showConflictDetails, setShowConflictDetails] = useState(true);
@@ -263,44 +258,102 @@ export const TimetableModule: React.FC<TimetableModuleProps> = ({
     );
   }, [conflicts, selectedTeacherShortName]);
 
-  const handleStartEdit = (
+  const handleOpenSlotEditor = (
     day: number,
     period: number,
     className: string,
     session: 'morning' | 'afternoon' = 'morning'
   ) => {
-    const current = getSlot(day, period, className, session);
-    setEditSubject(current?.subject || '');
-    setEditTeacher(current?.teacherShortName || '');
-    setEditingSlot({ day, period, className, session });
+    const normPeriod = period > 5 ? period - 5 : period;
+    const existing = getSlot(day, normPeriod, className, session);
+    setSlotEditorData({
+      day,
+      period: normPeriod,
+      session,
+      originalDay: day,
+      originalPeriod: normPeriod,
+      originalSession: session,
+      originalClassName: className,
+      className: className,
+      subject: existing?.subject || '',
+      teacherShortName: existing?.teacherShortName || (teachers[0]?.shortName || ''),
+      isExistingSlot: Boolean(existing),
+    });
   };
 
-  const handleSaveEdit = () => {
-    if (!editingSlot) return;
+  const handleOpenManualModal = () => {
+    handleOpenSlotEditor(2, 1, CLASSES_LIST[0] || '6/1', 'morning');
+  };
+
+  const handleSaveSlotEditor = (updated: SlotEditorData) => {
+    if (!updated.subject.trim()) {
+      showToast('Vui lòng nhập tên môn học', 'info');
+      return;
+    }
+    if (!updated.className.trim()) {
+      showToast('Vui lòng chọn lớp học', 'info');
+      return;
+    }
 
     setTimetable((prev) => {
-      const targetPeriod = editingSlot.period > 5 ? editingSlot.period - 5 : editingSlot.period;
+      const filtered = prev.slots.filter((s) => {
+        const sSession = s.session || (s.period > 5 ? 'afternoon' : 'morning');
+        const sPeriod = s.period > 5 ? s.period - 5 : s.period;
+
+        // Filter out original position
+        const isOriginal =
+          s.dayOfWeek === updated.originalDay &&
+          sPeriod === updated.originalPeriod &&
+          sSession === updated.originalSession &&
+          s.className === updated.originalClassName;
+
+        // Also filter out target position if changed to avoid duplicates
+        const isTarget =
+          s.dayOfWeek === updated.day &&
+          sPeriod === updated.period &&
+          sSession === updated.session &&
+          s.className === updated.className;
+
+        return !isOriginal && !isTarget;
+      });
+
+      filtered.push({
+        dayOfWeek: updated.day,
+        session: updated.session,
+        period: updated.period,
+        className: updated.className,
+        subject: updated.subject.trim(),
+        teacherShortName: updated.teacherShortName.trim() || 'GV',
+      });
+
+      const updatedTimetable = { ...prev, slots: filtered };
+      if (setTimetableVersions && activeTimetableId) {
+        setTimetableVersions((vList) =>
+          vList.map((v) => (v.id === activeTimetableId ? { ...v, slots: filtered } : v))
+        );
+      }
+      return updatedTimetable;
+    });
+
+    const sessionLabel = updated.session === 'afternoon' ? 'Chiều' : 'Sáng';
+    showToast(
+      `Đã cập nhật Tiết ${updated.period} (${sessionLabel}) Thứ ${updated.day} - Lớp ${updated.className}: ${updated.subject} (${updated.teacherShortName})`
+    );
+    setSlotEditorData(null);
+  };
+
+  const handleDeleteSlotFromEditor = (slotToDelete: SlotEditorData) => {
+    setTimetable((prev) => {
       const filtered = prev.slots.filter((s) => {
         const sSession = s.session || (s.period > 5 ? 'afternoon' : 'morning');
         const sPeriod = s.period > 5 ? s.period - 5 : s.period;
         return !(
-          s.dayOfWeek === editingSlot.day &&
-          sPeriod === targetPeriod &&
-          sSession === editingSlot.session &&
-          s.className === editingSlot.className
+          s.dayOfWeek === slotToDelete.originalDay &&
+          sPeriod === slotToDelete.originalPeriod &&
+          sSession === slotToDelete.originalSession &&
+          s.className === slotToDelete.originalClassName
         );
       });
-
-      if (editSubject.trim()) {
-        filtered.push({
-          dayOfWeek: editingSlot.day,
-          session: editingSlot.session,
-          period: targetPeriod,
-          className: editingSlot.className,
-          subject: editSubject.trim(),
-          teacherShortName: editTeacher.trim() || 'GV',
-        });
-      }
 
       const updated = { ...prev, slots: filtered };
       if (setTimetableVersions && activeTimetableId) {
@@ -311,37 +364,11 @@ export const TimetableModule: React.FC<TimetableModuleProps> = ({
       return updated;
     });
 
-    const sessionLabel = editingSlot.session === 'afternoon' ? 'Chiều' : 'Sáng';
-    showToast(`Đã lưu tiết ${editingSlot.period} (${sessionLabel}) lớp ${editingSlot.className}`);
-    setEditingSlot(null);
-  };
-
-  const handleDeleteSlot = () => {
-    if (!editingSlot) return;
-
-    setTimetable((prev) => {
-      const targetPeriod = editingSlot.period > 5 ? editingSlot.period - 5 : editingSlot.period;
-      const filtered = prev.slots.filter((s) => {
-        const sSession = s.session || (s.period > 5 ? 'afternoon' : 'morning');
-        const sPeriod = s.period > 5 ? s.period - 5 : s.period;
-        return !(
-          s.dayOfWeek === editingSlot.day &&
-          sPeriod === targetPeriod &&
-          sSession === editingSlot.session &&
-          s.className === editingSlot.className
-        );
-      });
-      if (setTimetableVersions && activeTimetableId) {
-        setTimetableVersions((vList) =>
-          vList.map((v) => (v.id === activeTimetableId ? { ...v, slots: filtered } : v))
-        );
-      }
-      return { ...prev, slots: filtered };
-    });
-
-    const sessionLabel = editingSlot.session === 'afternoon' ? 'Chiều' : 'Sáng';
-    showToast(`Đã xóa tiết ${editingSlot.period} (${sessionLabel}) lớp ${editingSlot.className}`);
-    setEditingSlot(null);
+    const sessionLabel = slotToDelete.originalSession === 'afternoon' ? 'Chiều' : 'Sáng';
+    showToast(
+      `Đã xóa tiết ${slotToDelete.originalPeriod} (${sessionLabel}) lớp ${slotToDelete.originalClassName}`
+    );
+    setSlotEditorData(null);
   };
 
   // Delete all TKB slots
@@ -687,10 +714,12 @@ export const TimetableModule: React.FC<TimetableModuleProps> = ({
             setIsVersionModalOpen(true);
           }}
           onEditSlot={(slot) => {
-            const currentSlot = getSlot(slot.day, slot.period, slot.className);
-            setEditingSlot(slot);
-            setEditSubject(currentSlot ? currentSlot.subject : '');
-            setEditTeacher(currentSlot ? currentSlot.teacherShortName : '');
+            handleOpenSlotEditor(
+              slot.day,
+              slot.period,
+              slot.className,
+              slot.session || (slot.period > 5 ? 'afternoon' : 'morning')
+            );
           }}
           onOpenUploadModal={onOpenUploadModal}
           onSwitchToFullMatrix={() => setMobileTKBFormat('matrix')}
@@ -731,59 +760,17 @@ export const TimetableModule: React.FC<TimetableModuleProps> = ({
           />
         )}
 
-        {/* Edit Slot Modal */}
-        {editingSlot && (
-          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-5 border border-slate-200">
-              <h3 className="font-bold text-slate-800 text-sm mb-3">
-                Chỉnh sửa Tiết {editingSlot.period} - Thứ {editingSlot.day} (Lớp {editingSlot.className})
-              </h3>
-              <div className="space-y-3 text-xs">
-                <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Môn học</label>
-                  <input
-                    type="text"
-                    value={editSubject}
-                    onChange={(e) => setEditSubject(e.target.value)}
-                    className="w-full border border-slate-300 rounded-lg p-2 font-medium"
-                    placeholder="VD: Toán, Ngữ Văn, Tiếng Anh..."
-                  />
-                </div>
-                <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Giáo viên phụ trách</label>
-                  <select
-                    value={editTeacher}
-                    onChange={(e) => setEditTeacher(e.target.value)}
-                    className="w-full border border-slate-300 rounded-lg p-2 font-bold"
-                  >
-                    <option value="">-- Để trống (Tiết nghỉ) --</option>
-                    {teachers.map((t) => (
-                      <option key={t.id} value={t.shortName}>
-                        {t.name} ({t.shortName}) - {t.subject}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div className="flex justify-end gap-2 pt-4 border-t mt-4">
-                <button
-                  type="button"
-                  onClick={() => setEditingSlot(null)}
-                  className="px-3 py-1.5 text-xs text-slate-600 bg-slate-100 rounded-lg"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSaveEdit}
-                  className="px-3 py-1.5 text-xs font-bold text-white bg-blue-700 rounded-lg shadow-sm"
-                >
-                  Lưu
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Popover/Modal: Chỉnh sửa tiết học */}
+        <TimetableSlotModal
+          isOpen={Boolean(slotEditorData)}
+          onClose={() => setSlotEditorData(null)}
+          slotData={slotEditorData}
+          onSave={handleSaveSlotEditor}
+          onDelete={handleDeleteSlotFromEditor}
+          teachers={teachers}
+          classes={CLASSES_LIST}
+          timetableSlots={timetable.slots}
+        />
       </div>
     );
   }
@@ -956,6 +943,16 @@ export const TimetableModule: React.FC<TimetableModuleProps> = ({
             >
               <Upload className="w-4 h-4 text-amber-300" />
               <span>Tải lên TKB (Excel, Word, PDF)</span>
+            </button>
+
+            {/* Manual Edit Slot Button */}
+            <button
+              onClick={handleOpenManualModal}
+              className="flex items-center gap-2 px-3.5 py-2 bg-indigo-700 hover:bg-indigo-800 text-white rounded-lg text-sm font-bold shadow-xs transition-colors cursor-pointer"
+              title="Chọn lớp, buổi, thứ, tiết để thay đổi môn và giáo viên thủ công ngay trên app"
+            >
+              <Edit3 className="w-4 h-4 text-amber-300" />
+              <span>Sửa TKB thủ công</span>
             </button>
 
             {/* Template Download */}
@@ -1367,76 +1364,23 @@ export const TimetableModule: React.FC<TimetableModuleProps> = ({
                                   const conflictInfo = getConflictForSlot(d.dayNumber, p, cls, session);
                                   const hasConflict = Boolean(conflictInfo);
 
-                                  const isEditing =
-                                    editingSlot &&
-                                    editingSlot.day === d.dayNumber &&
-                                    editingSlot.period === p &&
-                                    editingSlot.className === cls &&
-                                    editingSlot.session === session;
-
-                                  if (isEditing) {
-                                    return (
-                                      <td
-                                        key={cls}
-                                        className="p-1.5 border-r border-slate-200 bg-amber-50"
-                                      >
-                                        <div className="space-y-1">
-                                          <input
-                                            type="text"
-                                            placeholder="Môn (VD: Toán)"
-                                            value={editSubject}
-                                            onChange={(e) => setEditSubject(e.target.value)}
-                                            className="w-full text-xs font-semibold px-1 py-0.5 border border-slate-300 rounded bg-white"
-                                            autoFocus
-                                          />
-                                          <input
-                                            type="text"
-                                            placeholder="Tên GV (VD: Lan)"
-                                            value={editTeacher}
-                                            onChange={(e) => setEditTeacher(e.target.value)}
-                                            className="w-full text-xs px-1 py-0.5 border border-slate-300 rounded bg-white"
-                                          />
-                                          <div className="flex gap-1">
-                                            <button
-                                              onClick={handleSaveEdit}
-                                              className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded px-1 py-0.5 text-[10px] font-bold"
-                                            >
-                                              Lưu
-                                            </button>
-                                            <button
-                                              onClick={handleDeleteSlot}
-                                              className="bg-rose-600 hover:bg-rose-700 text-white rounded px-1.5 py-0.5 text-[10px] font-bold"
-                                              title="Xóa tiết này"
-                                            >
-                                              Xóa
-                                            </button>
-                                            <button
-                                              onClick={() => setEditingSlot(null)}
-                                              className="bg-slate-300 hover:bg-slate-400 text-slate-700 rounded px-1 py-0.5 text-[10px]"
-                                            >
-                                              ✕
-                                            </button>
-                                          </div>
-                                        </div>
-                                      </td>
-                                    );
-                                  }
-
                                   return (
                                     <td
                                       key={cls}
-                                      onClick={() => handleStartEdit(d.dayNumber, p, cls, session)}
-                                      className={`p-2 border-r border-slate-200 cursor-pointer transition-all ${
+                                      onClick={() => handleOpenSlotEditor(d.dayNumber, p, cls, session)}
+                                      className={`p-2 border-r border-slate-200 cursor-pointer transition-all relative group ${
                                         hasConflict
-                                          ? 'bg-rose-100 border-rose-300 text-rose-950 ring-2 ring-rose-500 font-bold'
+                                          ? 'bg-rose-100 border-rose-300 text-rose-950 ring-2 ring-rose-500 font-bold hover:bg-rose-200/80'
                                           : isHighlighted
-                                          ? 'bg-amber-100/80 font-bold border-amber-300 text-blue-900 ring-1 ring-amber-400 inset-shadow-xs'
-                                          : 'hover:bg-slate-100'
+                                          ? 'bg-amber-100/80 font-bold border-amber-300 text-blue-900 ring-1 ring-amber-400 inset-shadow-xs hover:bg-amber-200/70'
+                                          : 'hover:bg-indigo-50/80 hover:ring-1 hover:ring-indigo-300'
                                       }`}
                                       title={
                                         hasConflict
-                                          ? `⚠️ XUNG ĐỘT: GV ${conflictInfo?.teacherShortName} bị trùng lịch với lớp ${conflictInfo?.classes.filter((c) => c !== cls).join(', ')}!`
-                                          : 'Nhấp để sửa hoặc xóa tiết này'
+                                          ? `⚠️ XUNG ĐỘT: GV ${conflictInfo?.teacherShortName} bị trùng lịch với lớp ${conflictInfo?.classes.filter((c) => c !== cls).join(', ')}! (Nhấp để mở bảng chỉnh sửa môn, lớp, giáo viên)`
+                                          : slot
+                                          ? `Tiết ${p}: ${slot.subject} - GV ${slot.teacherShortName} (Nhấp để mở bảng chỉnh sửa môn, lớp, giáo viên)`
+                                          : `Tiết ${p} (Trống) - Nhấp để phân công môn học, lớp và giáo viên`
                                       }
                                     >
                                       {slot ? (
@@ -1451,7 +1395,7 @@ export const TimetableModule: React.FC<TimetableModuleProps> = ({
                                             className={`text-[11px] leading-tight text-center ${
                                               hasConflict
                                                 ? 'font-black text-rose-950'
-                                                : 'font-semibold text-slate-800'
+                                                : 'font-semibold text-slate-800 group-hover:text-indigo-950'
                                             }`}
                                           >
                                             {slot.subject}
@@ -1462,14 +1406,20 @@ export const TimetableModule: React.FC<TimetableModuleProps> = ({
                                                 ? 'text-rose-900 font-extrabold underline'
                                                 : isHighlighted
                                                 ? 'text-amber-800 font-bold'
-                                                : 'text-slate-500 italic'
+                                                : 'text-slate-500 italic group-hover:text-indigo-700 font-medium'
                                             }`}
                                           >
                                             {slot.teacherShortName}
                                           </span>
+                                          <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-indigo-600 text-white rounded p-0.5 shadow-2xs">
+                                            <Edit2 className="w-2.5 h-2.5" />
+                                          </div>
                                         </div>
                                       ) : (
-                                        <span className="text-slate-300 text-center block">-</span>
+                                        <div className="text-slate-300 text-center flex items-center justify-center py-1 group-hover:text-indigo-600 transition-colors">
+                                          <Plus className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity text-indigo-600" />
+                                          <span className="group-hover:hidden">-</span>
+                                        </div>
                                       )}
                                     </td>
                                   );
@@ -1553,6 +1503,35 @@ export const TimetableModule: React.FC<TimetableModuleProps> = ({
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
+                onClick={() => {
+                  const teacherName = currentTeacherObj?.name || selectedTeacherShortName;
+                  exportTimetableByTeacherToExcel(timetable, selectedTeacherShortName, teacherName);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-all active:scale-95"
+                title="Tải thời khóa biểu giáo viên này dưới dạng file Excel"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Tải Excel TKB GV</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const teacherName = currentTeacherObj?.name || selectedTeacherShortName;
+                  exportTimetableToPdf(timetable, {
+                    filterTeacher: selectedTeacherShortName,
+                    filterTeacherName: teacherName,
+                  });
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition-all active:scale-95"
+                title="In hoặc xuất PDF TKB giáo viên"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>In / Xuất PDF</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setViewMode('weekly-schedule')}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-blue-950 text-xs font-black shadow-xs transition-all active:scale-95"
                 title="Chuyển sang Bảng lịch dạy 5 cột: Buổi (Sáng/Chiều), Thứ, Tiết, Lớp, Môn học"
@@ -1624,10 +1603,12 @@ export const TimetableModule: React.FC<TimetableModuleProps> = ({
                             return (
                               <div
                                 key={`m-${p}`}
-                                className="p-1.5 rounded border border-dashed border-slate-200 bg-slate-100/40 text-slate-400 text-[11px] flex items-center justify-between"
+                                onClick={() => handleOpenSlotEditor(d.dayNumber, p, CLASSES_LIST[0] || '6/1', 'morning')}
+                                className="p-1.5 rounded border border-dashed border-slate-200 bg-slate-100/40 hover:bg-indigo-50 hover:border-indigo-300 text-slate-400 hover:text-indigo-600 text-[11px] flex items-center justify-between cursor-pointer transition-colors"
+                                title="Nhấp để thêm tiết cho giáo viên này"
                               >
-                                <span className="font-semibold text-slate-400">Tiết {p}</span>
-                                <span className="text-[10px] italic">Trống</span>
+                                <span className="font-semibold">Tiết {p}</span>
+                                <span className="text-[10px] italic">+ Thêm</span>
                               </div>
                             );
                           }
@@ -1660,9 +1641,18 @@ export const TimetableModule: React.FC<TimetableModuleProps> = ({
                               {slotsForThisPeriod.map((slot, sIdx) => (
                                 <div
                                   key={sIdx}
-                                  className={`flex items-center justify-between p-1 rounded text-[11px] ${
-                                    isConflicted ? 'bg-white/80 border border-rose-200' : ''
+                                  onClick={() =>
+                                    handleOpenSlotEditor(
+                                      slot.dayOfWeek,
+                                      slot.period > 5 ? slot.period - 5 : slot.period,
+                                      slot.className,
+                                      slot.session || (slot.period > 5 ? 'afternoon' : 'morning')
+                                    )
+                                  }
+                                  className={`flex items-center justify-between p-1 rounded text-[11px] cursor-pointer hover:ring-1 hover:ring-indigo-400 transition-all ${
+                                    isConflicted ? 'bg-white/80 border border-rose-200' : 'hover:bg-blue-50/80'
                                   }`}
+                                  title="Nhấp để chỉnh sửa môn, lớp, giáo viên của tiết này"
                                 >
                                   <span
                                     className={`font-bold ${
@@ -1710,10 +1700,12 @@ export const TimetableModule: React.FC<TimetableModuleProps> = ({
                             return (
                               <div
                                 key={`a-${p}`}
-                                className="p-1.5 rounded border border-dashed border-slate-200 bg-slate-100/40 text-slate-400 text-[11px] flex items-center justify-between"
+                                onClick={() => handleOpenSlotEditor(d.dayNumber, p, CLASSES_LIST[0] || '6/1', 'afternoon')}
+                                className="p-1.5 rounded border border-dashed border-slate-200 bg-slate-100/40 hover:bg-amber-50 hover:border-amber-300 text-slate-400 hover:text-amber-700 text-[11px] flex items-center justify-between cursor-pointer transition-colors"
+                                title="Nhấp để thêm tiết buổi chiều cho giáo viên này"
                               >
-                                <span className="font-semibold text-slate-400">Tiết {p}</span>
-                                <span className="text-[10px] italic">Trống</span>
+                                <span className="font-semibold">Tiết {p}</span>
+                                <span className="text-[10px] italic">+ Thêm</span>
                               </div>
                             );
                           }
@@ -1746,9 +1738,18 @@ export const TimetableModule: React.FC<TimetableModuleProps> = ({
                               {slotsForThisPeriod.map((slot, sIdx) => (
                                 <div
                                   key={sIdx}
-                                  className={`flex items-center justify-between p-1 rounded text-[11px] ${
-                                    isConflicted ? 'bg-white/80 border border-rose-200' : ''
+                                  onClick={() =>
+                                    handleOpenSlotEditor(
+                                      slot.dayOfWeek,
+                                      slot.period > 5 ? slot.period - 5 : slot.period,
+                                      slot.className,
+                                      slot.session || (slot.period > 5 ? 'afternoon' : 'morning')
+                                    )
+                                  }
+                                  className={`flex items-center justify-between p-1 rounded text-[11px] cursor-pointer hover:ring-1 hover:ring-amber-400 transition-all ${
+                                    isConflicted ? 'bg-white/80 border border-rose-200' : 'hover:bg-amber-50/80'
                                   }`}
+                                  title="Nhấp để chỉnh sửa môn, lớp, giáo viên của tiết này"
                                 >
                                   <span
                                     className={`font-bold ${
@@ -1788,6 +1789,14 @@ export const TimetableModule: React.FC<TimetableModuleProps> = ({
           timetable={timetable}
           selectedTeacherShortName={selectedTeacherShortName}
           onSelectTeacher={(sName) => setSelectedTeacherShortName(sName)}
+          onEditSlot={(slotData) => {
+            handleOpenSlotEditor(
+              slotData.day,
+              slotData.period,
+              slotData.className,
+              slotData.session
+            );
+          }}
         />
       )}
 
@@ -1816,6 +1825,18 @@ export const TimetableModule: React.FC<TimetableModuleProps> = ({
           type={confirmDialog.type}
         />
       )}
+
+      {/* Popover / Modal: Chỉnh sửa tiết học trực tiếp (Click vào ô TKB hoặc nút chỉnh sửa) */}
+      <TimetableSlotModal
+        isOpen={Boolean(slotEditorData)}
+        onClose={() => setSlotEditorData(null)}
+        slotData={slotEditorData}
+        onSave={handleSaveSlotEditor}
+        onDelete={handleDeleteSlotFromEditor}
+        teachers={teachers}
+        classes={CLASSES_LIST}
+        timetableSlots={timetable.slots}
+      />
     </div>
   );
 };

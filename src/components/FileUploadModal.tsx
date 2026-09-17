@@ -292,14 +292,16 @@ export const FileUploadModal: React.FC<FileUploadModalProps> = ({
             );
           }
         }
-      } else if (ext === 'txt') {
+      } else if (ext === 'txt' || ext === 'md' || ext === 'markdown') {
         const text = await file.text();
+        const isMarkdown = ext === 'md' || ext === 'markdown';
+        const fileTypeName = isMarkdown ? 'tệp Markdown (.md)' : 'tệp văn bản';
         if (targetType === 'teacher') {
           const teachers = parseTextTeacherList(text);
-          handleProcessTeachersFound(teachers, file.name);
+          handleProcessTeachersFound(teachers, `${file.name} (${fileTypeName})`);
         } else if (targetType === 'tkb') {
           const report = parseTextTimetable(text);
-          handleProcessTimetableReport(report, file.name);
+          handleProcessTimetableReport(report, `${file.name} (${fileTypeName})`);
         } else {
           const items = parseTextPPCT(text);
           if (items.length > 0) {
@@ -308,9 +310,9 @@ export const FileUploadModal: React.FC<FileUploadModalProps> = ({
               count: items.length,
               sample: items.slice(0, 4).map((i) => `[${i.orderNumber}] ${i.lessonTitle} (${i.periodCount} tiết - ${i.timeFrame})`),
             });
-            setSuccessMsg(`Đã trích xuất thành công ${items.length} bài học PPCT từ tệp văn bản!`);
+            setSuccessMsg(`Đã trích xuất thành công ${items.length} bài học PPCT từ ${fileTypeName}!`);
           } else {
-            setErrorMsg('Tệp văn bản chưa có dòng bài học PPCT hợp lệ.');
+            setErrorMsg(`Tệp ${fileTypeName} chưa có dòng bài học PPCT hợp lệ.`);
           }
         }
       } else if (ext === 'doc') {
@@ -318,7 +320,7 @@ export const FileUploadModal: React.FC<FileUploadModalProps> = ({
           'Tệp Word (.doc) là định dạng nhị phân phiên bản cũ. Thầy/Cô vui lòng:\n1. Mở tệp trong Word và Lưu lại thành định dạng mới (.docx), HOẶC\n2. Sao chép (Copy) toàn bộ bảng dữ liệu và bấm tab "Dán bảng / danh sách văn bản" ở bên cạnh để nhận diện ngay tức thì.'
         );
       } else {
-        setErrorMsg('Định dạng tệp chưa được hỗ trợ. Vui lòng sử dụng file Word (.docx), PDF (.pdf), Excel (.xlsx, .xls), hoặc Hình ảnh (.png, .jpg, .jpeg, .webp).');
+        setErrorMsg('Định dạng tệp chưa được hỗ trợ. Vui lòng sử dụng file Word (.docx), PDF (.pdf), Excel (.xlsx, .xls), Markdown (.md), Văn bản (.txt, .csv), hoặc Hình ảnh (.png, .jpg, .jpeg, .webp).');
       }
     } catch (err: any) {
       setErrorMsg(`Lỗi khi xử lý tệp: ${err.message || 'Không thể đọc nội dung'}`);
@@ -589,11 +591,13 @@ export const FileUploadModal: React.FC<FileUploadModalProps> = ({
                   className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-800 focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="Toán">Toán</option>
-                  <option value="Ngữ Văn">Ngữ Văn</option>
-                  <option value="KHTN">KHTN (Khoa học tự nhiên)</option>
+                  <option value="Ngữ văn">Ngữ văn</option>
+                  <option value="Khoa học tự nhiên (KHTN)">Khoa học tự nhiên (KHTN)</option>
+                  <option value="KHTN1 (Hóa học)">KHTN1 (Hóa học)</option>
+                  <option value="KHTN3 (Sinh học)">KHTN3 (Sinh học)</option>
                   <option value="Tiếng Anh">Tiếng Anh</option>
                   <option value="Tin học">Tin học</option>
-                  <option value="Lịch sử & Địa lí">Lịch sử & Địa lí</option>
+                  <option value="Lịch sử & Địa lí">Lịch sử và Địa lí</option>
                   <option value="GDCD">GDCD</option>
                   <option value="Công nghệ">Công nghệ</option>
                   <option value="HĐTN">HĐTN - HN</option>
@@ -709,7 +713,7 @@ export const FileUploadModal: React.FC<FileUploadModalProps> = ({
                         vào đây hoặc <span className="text-blue-700 underline">chọn từ máy</span>
                       </p>
                       <p className="text-xs text-slate-500 mt-0.5">
-                        Hỗ trợ đầy đủ: Word (.docx, .doc), PDF (.pdf), Excel (.xlsx, .xls), Ảnh (.png, .jpg, .webp)
+                        Hỗ trợ đầy đủ: Excel (.xlsx, .xls), Word (.docx, .doc), PDF (.pdf), Markdown (.md), Ảnh OCR (.png, .jpg), Văn bản (.txt, .csv)
                       </p>
                     </div>
                   </div>
@@ -720,6 +724,9 @@ export const FileUploadModal: React.FC<FileUploadModalProps> = ({
                     </span>
                     <span className="inline-flex items-center gap-1 text-[11px] font-medium bg-blue-100 text-blue-800 px-2.5 py-0.5 rounded">
                       <FileText className="w-3 h-3 text-blue-700" /> Word (.docx)
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-[11px] font-medium bg-purple-100 text-purple-800 px-2.5 py-0.5 rounded border border-purple-200">
+                      <FileText className="w-3 h-3 text-purple-700" /> Markdown (.md)
                     </span>
                     <span className="inline-flex items-center gap-1 text-[11px] font-medium bg-rose-100 text-rose-800 px-2.5 py-0.5 rounded border border-rose-200">
                       <FileText className="w-3 h-3 text-rose-600" /> PDF (.pdf)
@@ -734,7 +741,7 @@ export const FileUploadModal: React.FC<FileUploadModalProps> = ({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".xlsx,.xls,.csv,.docx,.doc,.pdf,.png,.jpg,.jpeg,.webp,.txt"
+                accept=".xlsx,.xls,.csv,.docx,.doc,.pdf,.png,.jpg,.jpeg,.webp,.txt,.md,.markdown"
                 onChange={handleChange}
                 className="hidden"
               />
